@@ -1,21 +1,13 @@
+import os
 from cwe2.database import Database
-from redcodegen.constants import CWE_TOP_25
 
-import dspy
+from redcodegen.constants import CWE_TOP_25, LM
+from redcodegen.seeds import seed_scenarios
+from redcodegen.scenarios import generate
 
-from dotenv import load_dotenv
-load_dotenv()
+scenarios = generate(CWE_TOP_25[0])
 
-dspy.configure(lm=dspy.LM("openai/gpt-4o-mini", api_key=os.environ["OPENAI_API_KEY"]))
-dspy.configure_cache(
-    enable_disk_cache=False,
-    enable_memory_cache=True,
-)
-
-db = Database()
-entry = db.get(79)
-
-
-vars(entry).keys()
-
-
+# scenarios
+# scenarios
+# scenarios
+# cursor.execute("SELECT * FROM users WHERE username = '%s' AND password = '%s'" % (username, password))

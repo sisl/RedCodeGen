@@ -7,5 +7,7 @@ requires-python = ">=3.11"
 dependencies = [
     "cwe2>=3.0.0",
     "dspy>=3.0.3",
+    "jsonlines>=4.0.0",
     "python-dotenv>=1.1.1",
+    "semgrep>=1.86.0",
 ]
