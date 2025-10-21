@@ -3,11 +3,9 @@
 </h1>
 
 <p align="center">
-[![PyPi version](https://pypip.in/v/$REPO/badge.png)](https://crate.io/packages/$REPO/)
 <a href="https://pypi.org/project/redcodegen/" target="_blank">
-    <img src="https://crate.io/packages/redcodegen/", alt="PyPi Version">
+    <img src="https://img.shields.io/pypi/v/redcodegen.svg", alt="PyPi Version">
 </a>
-
 <a href="https://github.com/sisl/redcodegen/blob/main/LICENSE" target="_blank">
     <img src="https://img.shields.io/badge/License-MIT-green.svg", alt="License">
 </a>
@@ -72,7 +70,7 @@ head -n 1 results.jsonl | jq .
   "min_scenarios": 5,
   "samples": [
     {
-      "scenario": "A web application that takes user input and constructs SQL queries without proper sanitization.",
+      "scenario": "A web application that takes user input and constructs SQL queries with proper sanitization.",
       "code": "...generated code here...",
       "evaluation": [
         "rule": "py/sql-injection",
