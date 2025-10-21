@@ -1,20 +1,14 @@
-from redcodegen.constants import CWE_TOP_25, LM
-from redcodegen.generator import run_cwe
-from redcodegen.validator import evaluate
-
+import os
 from cwe2.database import Database
 
-CWES_OF_INTEREST = [35, 36] # or CWE_TOP_25
-MIN_SAMPLES = 3
+from redcodegen.constants import CWE_TOP_25, LM
+from redcodegen.seeds import seed_scenarios
+from redcodegen.scenarios import generate
 
-results = run_cwe(35, min_scenarios=MIN_SAMPLES)
-evaluations = [evaluate(i) for i in results]
+scenarios = generate(72)
+scenarios
 
-# save evaluations w/ CWE metadata  
-# db = Database()
-# entry = db.get(cwe_id)
-# name=entry.name, description=entry.extended_description
-# as well as run parameters such as the current dspy environment state
-
-
-
+# scenarios
+# scenarios
+# scenarios
+# cursor.execute("SELECT * FROM users WHERE username = '%s' AND password = '%s'" % (username, password))

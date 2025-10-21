@@ -6,14 +6,13 @@ Main script for generating and evaluating vulnerable code samples
 import rich_click as click
 import jsonlines
 import logging
+import dspy
 from datetime import datetime
 from pathlib import Path
 from typing import List, Set, Dict, Any
 from cwe2.database import Database
 
-from redcodegen.constants import CWE_TOP_25, LM
-from redcodegen.generator import run_cwe
-from redcodegen.validator import evaluate
+from redcodegen.constants import CWE_TOP_25, create_lm
 
 from rich.logging import RichHandler
 
@@ -53,19 +52,15 @@ def load_completed_cwes(output_path: Path) -> Set[int]:
 
 
 def get_model_config() -> Dict[str, Any]:
-    """Extract model configuration from LM constant.
+    """Extract model configuration from current DSPy settings.
 
     Returns:
         Dict with model configuration info
     """
+    lm = dspy.settings.lm
     config = {
-        "model": getattr(LM, 'model', 'unknown'),
-        "kwargs": getattr(LM, 'kwargs', {})
+        "model": getattr(lm, 'model', 'unknown'),
     }
-
-    # Redact sensitive info like API keys
-    if 'api_key' in config['kwargs']:
-        config['kwargs']['api_key'] = config['kwargs']['api_key'][:8] + '...'
 
     return config
 
@@ -100,8 +95,7 @@ def build_record(
         samples.append({
             "scenario": scenario,
             "code": code,
-            "evaluation": evaluation,
-            "error": error
+            "evaluation": evaluation
         })
 
     return {
@@ -151,19 +145,35 @@ def append_to_jsonl(record: Dict[str, Any], output_path: Path):
     type=click.Path(),
     help='Output JSONL file (default: results.jsonl)'
 )
-def main(cwes, use_top_25, min_samples, output):
+@click.option(
+    '--model', '-m',
+    default='openai/gpt-4o-mini',
+    help='Model identifier (default: openai/gpt-4o-mini)'
+)
+@click.option(
+    '--api-key',
+    default=None,
+    help='API key (defaults to OPENAI_API_KEY env var)'
+)
+def main(cwes, use_top_25, min_samples, output, model, api_key):
     """Generate and evaluate vulnerable code samples for specified CWEs.
 
     Examples:
-        # Process specific CWEs
-        python -m redcodegen.main -c 89 -c 79 -n 5
-
-        # Process all CWE Top 25
-        python -m redcodegen.main --use-top-25
-
-        # Resume interrupted run (will skip already-completed CWEs)
-        python -m redcodegen.main --use-top-25 -o results.jsonl
+        python -m redcodegen -c 89 -c 79 # manually specify cwe
+        python -m redcodegen -n 5 # specify number of rollouts
+        python -m redcodegen --use-top-25 # run CWE top 25
+        python -m redcodegen --use-top-25 -o results.jsonl # resume existing run
+        python -m redcodegen --use-top-25 --model openai/gpt-4o # switch model
     """
+    # Configure DSPy with specified model
+    lm = create_lm(model_name=model, api_key=api_key)
+    dspy.configure(lm=lm)
+    logger.info(f"Configured model: {model}")
+
+    # Import generator and validator after configuring dspy
+    from redcodegen.generator import run_cwe
+    from redcodegen.validator import evaluate
+
     output_path = Path(output)
 
     # Determine which CWEs to process

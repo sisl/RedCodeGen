@@ -1,7 +1,4 @@
 import dspy
-from redcodegen.constants import LM
-dspy.configure(lm=LM)
-
 from redcodegen.scenarios import generate
 
 class GenerateCode(dspy.Signature):

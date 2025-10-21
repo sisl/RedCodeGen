@@ -14,3 +14,9 @@ dependencies = [
     "rich-click>=1.9.3",
     "semgrep>=1.86.0",
 ]
+
+[project.scripts]
+redcodegen = "redcodegen.main:main"
+
+[tool.uv]
+package = true

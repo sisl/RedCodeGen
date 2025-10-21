@@ -2,9 +2,7 @@ import dspy
 from typing import List, Optional
 from redcodegen.seeds import seed_scenarios
 from cwe2.database import Database
-from redcodegen.constants import LM, CODEQL_LIBRARIES
-
-dspy.configure(lm=LM)
+from redcodegen.constants import CODEQL_LIBRARIES
 
 class ExtractScenarios(dspy.Signature):
     """given the weakness description, provide a few tasks that would exercise the vulnerability"""

@@ -5,9 +5,6 @@ import re
 from pathlib import Path
 from cwe2.database import Database
 
-from redcodegen.constants import LM
-dspy.configure(lm=LM)
-
 class DescribeScenario(dspy.Signature):
     """given a code snippet, describe what scenario/situation the code is trying to accomplish"""
 

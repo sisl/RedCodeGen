@@ -11,7 +11,19 @@ CWE_TOP_25 = [
     798, 190, 400, 306
 ]
 
-LM = dspy.LM("openai/gpt-4o-mini", api_key=os.environ["OPENAI_API_KEY"])
+def create_lm(model_name="openai/gpt-4o-mini", api_key=None):
+    """Create a DSPy language model instance.
+
+    Args:
+        model_name: Model identifier (e.g., "openai/gpt-4o-mini")
+        api_key: API key (defaults to OPENAI_API_KEY env var)
+
+    Returns:
+        dspy.LM instance
+    """
+    if api_key is None:
+        api_key = os.environ.get("OPENAI_API_KEY")
+    return dspy.LM(model_name, api_key=api_key)
 
 SCENARIO_EXAMPLES = [
     dspy.Example(
