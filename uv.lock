@@ -1783,19 +1783,25 @@ name = "redcodegen"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "click" },
     { name = "cwe2" },
     { name = "dspy" },
     { name = "jsonlines" },
     { name = "python-dotenv" },
+    { name = "rich" },
+    { name = "rich-click" },
     { name = "semgrep" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "click", specifier = ">=8.0.0" },
     { name = "cwe2", specifier = ">=3.0.0" },
     { name = "dspy", specifier = ">=3.0.3" },
     { name = "jsonlines", specifier = ">=4.0.0" },
     { name = "python-dotenv", specifier = ">=1.1.1" },
+    { name = "rich", specifier = ">=14.2.0" },
+    { name = "rich-click", specifier = ">=1.9.3" },
     { name = "semgrep", specifier = ">=1.86.0" },
 ]
 
@@ -1931,6 +1937,20 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/fb/d2/8920e102050a0de7bfabeb4c4614a49248cf8d5d7a8d01885fbb24dc767a/rich-14.2.0.tar.gz", hash = "sha256:73ff50c7c0c1c77c8243079283f4edb376f0f6442433aecb8ce7e6d0b92d1fe4", size = 219990 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/25/7a/b0178788f8dc6cafce37a212c99565fa1fe7872c70c6c9c1e1a372d9d88f/rich-14.2.0-py3-none-any.whl", hash = "sha256:76bc51fe2e57d2b1be1f96c524b890b816e334ab4c1e45888799bfaab0021edd", size = 243393 },
+]
+
+[[package]]
+name = "rich-click"
+version = "1.9.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "click" },
+    { name = "colorama", marker = "platform_system == 'Windows'" },
+    { name = "rich" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/9d/90/95cff624a176de6d00a4ddc4fb0238649bca09c19bd37d5b8d1962f8dcfc/rich_click-1.9.3.tar.gz", hash = "sha256:60839150a935604df1378b159da340d3fff91f912903e935da7cb615b5738c1b", size = 73549 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/5b/76/5679d9eee13b8670084d2fe5d7933931b50fd896391693ba690f63916d66/rich_click-1.9.3-py3-none-any.whl", hash = "sha256:8ef51bc340db4d048a846c15c035d27b88acf720cbbb9b6fecf6c8b1a297b909", size = 70168 },
 ]
 
 [[package]]
