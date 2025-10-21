@@ -1,4 +1,17 @@
-# RedCodeGen
+<h1 align="center">
+    <em>RedCodeGen</em>
+</h1>
+
+<p align="center">
+[![PyPi version](https://pypip.in/v/$REPO/badge.png)](https://crate.io/packages/$REPO/)
+<a href="https://pypi.org/project/redcodegen/" target="_blank">
+    <img src="https://crate.io/packages/redcodegen/", alt="PyPi Version">
+</a>
+
+<a href="https://github.com/sisl/redcodegen/blob/main/LICENSE" target="_blank">
+    <img src="https://img.shields.io/badge/License-MIT-green.svg", alt="License">
+</a>
+</p>
 
 Automatic generation of *beign* prompts and language model rollouts in Python that exercise specific software vulnerabilities (CWEs) defined in the [MITRE CWE database](https://cwe.mitre.org/). 
 
