@@ -48,7 +48,7 @@ def generate(cwe_id, min_scenarios=3):
     output_scenarios = []
     while len(output_scenarios) < min_scenarios:
         scenarios = extract_scenarios(name=entry.name, description=entry.extended_description,
-                                      config={"temperature": 0.8, "rollout_id": len(output_scenarios)}).scenarios
+                                      config={"rollout_id": len(output_scenarios)}).scenarios
         output_scenarios.extend(scenarios)
     scenarios = [strip_vulnerability(scenario=i).coding_task for i in output_scenarios]
     suggestions = [suggest_libraries(task=i, suggested_libraries=CODEQL_LIBRARIES) for i in scenarios]
