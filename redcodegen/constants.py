@@ -11,7 +11,7 @@ CWE_TOP_25 = [
     798, 190, 400, 306
 ]
 
-def create_lm(model_name="openai/gpt-4o-mini", api_key=None):
+def create_lm(model_name="openai/gpt-4o-mini", temperature=0.8, api_key=None):
     """Create a DSPy language model instance.
 
     Args:
@@ -23,7 +23,12 @@ def create_lm(model_name="openai/gpt-4o-mini", api_key=None):
     """
     if api_key is None:
         api_key = os.environ.get("OPENAI_API_KEY")
-    return dspy.LM(model_name, api_key=api_key)
+    return dspy.LM(
+        model_name,
+        api_key=api_key,
+        temperature=temperature,
+        max_tokens=16000
+    )
 
 SCENARIO_EXAMPLES = [
     dspy.Example(
