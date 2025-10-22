@@ -11,7 +11,7 @@
 </a>
 </p>
 
-Automatic generation of *beign* prompts and language model rollouts in Python that exercise specific software vulnerabilities (CWEs) defined in the [MITRE CWE database](https://cwe.mitre.org/). 
+Automatic generation of *benign* prompts and language model rollouts in Python that exercise specific software vulnerabilities (CWEs) defined in the [MITRE CWE database](https://cwe.mitre.org/). 
 
 Developed by the Stanford Intelligent Systems Laboratory (SISL) as a part of [astra-rl](https://github.com/sisl/astra-rl).
 
