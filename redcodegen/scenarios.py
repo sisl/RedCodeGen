@@ -29,8 +29,8 @@ class SuggestLibraries(dspy.Signature):
     task: str = dspy.InputField()
     suggested_libraries: List[str] = dspy.InputField()
 
-    chosen_library: Optional[str] = dspy.OutputField(desc="choose a library that would best help solve the task, or None")
-    rephrased_task: Optional[str] = dspy.OutputField(desc="rephrase the task in terms of the chosen library, or None")
+    chosen_library: str = dspy.OutputField(desc="choose a library that would best help solve the task, or say None")
+    rephrased_task: str = dspy.OutputField(desc="rephrase the task in terms of the chosen library, or say None")
 suggest_libraries = dspy.Predict(SuggestLibraries)
 
 def generate(cwe_id, min_scenarios=3):
@@ -53,7 +53,7 @@ def generate(cwe_id, min_scenarios=3):
     scenarios = [strip_vulnerability(scenario=i).coding_task for i in output_scenarios]
     suggestions = [suggest_libraries(task=i, suggested_libraries=CODEQL_LIBRARIES) for i in scenarios]
     results = [
-        i.rephrased_task if i.rephrased_task is not None else j
+        i.rephrased_task if ((i.rephrased_task is not None) and (i.lower().rephrased_task.strip() != "none")) else j
         for i,j in zip(suggestions, scenarios)
     ]
 
