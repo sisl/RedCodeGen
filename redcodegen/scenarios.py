@@ -53,7 +53,7 @@ def generate(cwe_id, min_scenarios=3):
     scenarios = [strip_vulnerability(scenario=i).coding_task for i in output_scenarios]
     suggestions = [suggest_libraries(task=i, suggested_libraries=CODEQL_LIBRARIES) for i in scenarios]
     results = [
-        i.rephrased_task if ((i.rephrased_task is not None) and (i.lower().rephrased_task.strip() != "none")) else j
+        i.rephrased_task if ((i.rephrased_task is not None) and (i.rephrased_task.lower().strip() != "none")) else j
         for i,j in zip(suggestions, scenarios)
     ]
 
