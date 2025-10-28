@@ -156,12 +156,17 @@ def append_to_jsonl(record: Dict[str, Any], output_path: Path):
     help='API key (defaults to OPENAI_API_KEY env var)'
 )
 @click.option(
+    '--api-base',
+    default=None,
+    help='API base URL (defaults to OPENAI_API_BASE env var)'
+)
+@click.option(
     '--temperature',
     default=0.8,
     type=float,
     help='Temperature for code generation (default: 0.8)'
 )
-def main(cwes, use_top_25, min_samples, output, model, api_key, temperature):
+def main(cwes, use_top_25, min_samples, output, model, api_key, api_base, temperature):
     """Generate and evaluate vulnerable code samples for specified CWEs.
 
     Examples:
@@ -172,7 +177,7 @@ def main(cwes, use_top_25, min_samples, output, model, api_key, temperature):
         python -m redcodegen --use-top-25 --model openai/gpt-4o # switch model
     """
     # Configure DSPy with specified model
-    lm = create_lm(model_name=model, temperature=temperature, api_key=api_key)
+    lm = create_lm(model_name=model, temperature=temperature, api_key=api_key, api_base=api_base)
     dspy.configure(lm=lm)
     logger.info(f"Configured model: {model}")
 
