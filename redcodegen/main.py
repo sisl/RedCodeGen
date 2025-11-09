@@ -121,7 +121,13 @@ def append_to_jsonl(record: Dict[str, Any], output_path: Path):
     logger.info(f"Saved CWE-{record['cwe_id']} to {output_path}")
 
 
-@click.command()
+@click.group()
+def main():
+    """RedCodegen - Generate and analyze vulnerable code samples."""
+    pass
+
+
+@main.command()
 @click.option(
     '--cwes', '-c',
     multiple=True,
@@ -166,15 +172,15 @@ def append_to_jsonl(record: Dict[str, Any], output_path: Path):
     type=float,
     help='Temperature for code generation (default: 0.8)'
 )
-def main(cwes, use_top_25, min_samples, output, model, api_key, api_base, temperature):
-    """Generate and evaluate vulnerable code samples for specified CWEs.
+def generate(cwes, use_top_25, min_samples, output, model, api_key, api_base, temperature):
+    """Generate benign prompts that could result in vulnerabilities exercising specified CWEs.
 
     Examples:
-        python -m redcodegen -c 89 -c 79 # manually specify cwe
-        python -m redcodegen -n 5 # specify number of rollouts
-        python -m redcodegen --use-top-25 # run CWE top 25
-        python -m redcodegen --use-top-25 -o results.jsonl # resume existing run
-        python -m redcodegen --use-top-25 --model openai/gpt-4o # switch model
+        redcodegen generate -c 89 -c 79 # manually specify cwe
+        redcodegen generate -n 5 # specify number of rollouts
+        redcodegen generate --use-top-25 # run CWE top 25
+        redcodegen generate --use-top-25 -o results.jsonl # resume existing run
+        redcodegen generate --use-top-25 --model openai/gpt-4o # switch model
     """
     # Configure DSPy with specified model
     lm = create_lm(model_name=model, temperature=temperature, api_key=api_key, api_base=api_base)

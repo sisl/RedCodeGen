@@ -15,3 +15,5 @@ wheels/
 .develop.env
 /*.jsonl
 .DS_Store
+/data/
+/figures/

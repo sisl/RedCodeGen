@@ -12,10 +12,21 @@ coder = dspy.ChainOfThought(GenerateCode)
 
 def run(task):
     code = coder(task=task, language="python").code
-    return code
+    return code.replace("```python", "").replace("```", "").strip()
 
+def run_k(task, k):
+    codes = []
+    for i in range(k):
+        code = coder(
+            task=task,
+            language="python",
+            config={"rollout_id": i}
+        ).code
+        codes.append(code.replace("```python", "").replace("```", "").strip())
+    return codes
 
 def run_cwe(cwe_id, min_scenarios=3):
+
     scenarios = generate(cwe_id, min_scenarios=min_scenarios)["scenarios"]
     results = []
 

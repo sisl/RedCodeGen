@@ -51,7 +51,7 @@ The most basic usage involves rolling out a language model to generate code samp
 Suppose you want to rollout 5 samples each to exercise CWE-89 (SQL Injection) and CWE-79 (Cross-Site Scripting):
 
 ```bash
-python -m redcodegen -c 89 -c 79 -n 5 -o results.jsonl
+redcodegen generate -c 89 -c 79 -n 5 -o results.jsonl
 ```
 
 You will get a `results.jsonl` file with the generated samples and their evaluations. Each CWE will live on a line. Let's take a peak!
@@ -88,17 +88,17 @@ Importantly, running the above command multiple times (to the same output file) 
 ## Usage Examples
 
 ```bash
-python -m redcodegen -c 89 -c 79 # manually specify cwe
-python -m redcodegen -n 5 # specify number of rollouts
-python -m redcodegen --use-top-25 # run CWE top 25
-python -m redcodegen --use-top-25 -o results.jsonl # resume existing run
-python -m redcodegen --use-top-25 --model openai/gpt-4o # switch model
+redcodegen generate -c 89 -c 79 # manually specify cwe
+redcodegen generate -n 5 # specify number of rollouts
+redcodegen generate --use-top-25 # run CWE top 25
+redcodegen generate --use-top-25 -o results.jsonl # resume existing run
+redcodegen generate --use-top-25 --model openai/gpt-4o # switch model
 ```
 
 Also, you can run
 
 ```bash
-python -m redcodegen --help
+redcodegen --help
 ```
 
 to see all available options.

@@ -17,6 +17,7 @@ import json
 import logging
 from pathlib import Path
 from typing import List, Dict
+from functools import cache
 
 logger = logging.getLogger(__name__)
 
@@ -122,7 +123,7 @@ def _cleanup(*paths: Path):
             except Exception as e:
                 logger.warning(f"Failed to cleanup {path}: {e}")
 
-
+@cache
 def evaluate(program: str, workdir: str = "/tmp") -> List[Dict[str, any]]:
     """Evaluates program via codeql in a temporary workdir
 
