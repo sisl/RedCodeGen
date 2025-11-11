@@ -185,6 +185,8 @@ def build_amplify_record(
     return {
         "type": rule,
         "seed": seed,
+        "timestamp": datetime.utcnow().isoformat() + 'Z',
+        "model_config": get_model_config(),
         "mcmc_successes": successes_out,
         "mcmc_failures": failures_out,
         "metadata": metadata
