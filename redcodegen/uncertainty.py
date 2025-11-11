@@ -79,7 +79,7 @@ def mcmc(tau: str, kernel: Kernel, turns=100, find_failure=True, symmetric=False
 
         # get next sample
         (tau, fail_dist) = samples[-1]
-        tau_prime = kernel.sample(tau, state=i*(1 if find_failure else -1))
+        tau_prime = kernel.sample(tau, state=(i+1)*(1 if find_failure else -1))
         fail_dist_prime = quantify(tau_prime, threshold)
 
         bonus = 0.0
