@@ -11,8 +11,11 @@ class LMRephrasingKernel(Kernel):
     def __init__(self):
         self.kernel = dspy.ChainOfThought(GenerateConditionedPrompt)
         
-    def sample(self, tau):
-        return self.kernel(task=tau).rephrased_task
+    def sample(self, tau, state=None):
+        if state is not None:
+            return self.kernel(task=tau, config={"rollout_id": state}).rephrased_task
+        else:
+            return self.kernel(task=tau).rephrased_task
 
     def condition(self, tau, tau_prime):
         """Compute the conditional probability of tau_prime given tau.

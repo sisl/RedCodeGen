@@ -9,6 +9,7 @@ dependencies = [
     "cwe2>=3.0.0",
     "dspy>=3.0.3",
     "jsonlines>=4.0.0",
+    "pandas>=2.3.3",
     "python-dotenv>=1.1.1",
     "rich>=14.2.0",
     "rich-click>=1.9.3",
@@ -25,6 +26,12 @@ package = true
 [build-system]
 requires = ["uv_build>=0.9.5,<0.10.0"]
 build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "ipdb>=0.13.13",
+    "seaborn>=0.13.2",
+]
 
 [tool.uv.build-backend]
 module-name = "redcodegen"

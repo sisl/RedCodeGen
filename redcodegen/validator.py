@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import List, Dict
 from functools import cache
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("redcodegen")
 
 
 def _find_codeql() -> str:
@@ -166,7 +166,7 @@ def evaluate(program: str, workdir: str = "/tmp") -> List[Dict[str, any]]:
         program_path.write_text(program, encoding='utf-8')
 
         # Create CodeQL database
-        logger.info(f"Creating CodeQL database in {db_dir}")
+        logger.debug(f"Creating CodeQL database in {db_dir}")
         subprocess.run(
             [
                 codeql_bin,
@@ -183,7 +183,7 @@ def evaluate(program: str, workdir: str = "/tmp") -> List[Dict[str, any]]:
         )
 
         # Analyze database
-        logger.info(f"Analyzing CodeQL database")
+        logger.debug(f"Analyzing CodeQL database")
         subprocess.run(
             [
                 codeql_bin,
@@ -202,7 +202,7 @@ def evaluate(program: str, workdir: str = "/tmp") -> List[Dict[str, any]]:
 
         # Parse SARIF results
         vulnerabilities = _parse_sarif(sarif_path)
-        logger.info(f"Found {len(vulnerabilities)} vulnerabilities")
+        logger.debug(f"Found {len(vulnerabilities)} vulnerabilities")
 
         return vulnerabilities
 

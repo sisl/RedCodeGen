@@ -17,3 +17,4 @@ wheels/
 .DS_Store
 /data/
 /figures/
+/output/
