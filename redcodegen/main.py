@@ -397,6 +397,11 @@ def generate(cwes, use_top_25, min_samples, output, model, api_key, api_base, te
     help='Specific CodeQL rule(s) to process (can specify multiple times)'
 )
 @click.option(
+    '--ignore-rule', '-x',
+    multiple=True,
+    help='CodeQL rule(s) to ignore/exclude (can specify multiple times)'
+)
+@click.option(
     '--model', '-m',
     default='openai/gpt-4o-mini',
     help='Model identifier (default: openai/gpt-4o-mini)'
@@ -417,7 +422,7 @@ def generate(cwes, use_top_25, min_samples, output, model, api_key, api_base, te
     type=float,
     help='Temperature for rephrasing (default: 0.8)'
 )
-def amplify(input, output, mcmc_steps, variance_threshold, filter_rule, model, api_key, api_base, temperature):
+def amplify(input, output, mcmc_steps, variance_threshold, filter_rule, ignore_rule, model, api_key, api_base, temperature):
     """Amplify vulnerable scenarios using MCMC to explore failure boundaries.
 
     Takes output from 'generate' command and runs MCMC to find nearby prompts
@@ -427,6 +432,7 @@ def amplify(input, output, mcmc_steps, variance_threshold, filter_rule, model, a
         redcodegen amplify -i results.jsonl -o amplified.jsonl
         redcodegen amplify -i results.jsonl -o amplified.jsonl --mcmc-steps 32
         redcodegen amplify -i results.jsonl -o amplified.jsonl -r py/sql-injection
+        redcodegen amplify -i results.jsonl -o amplified.jsonl -x py/path-injection
         redcodegen amplify -i results.jsonl -o amplified.jsonl # resume partial run
         redcodegen amplify -i results.jsonl -o amplified.jsonl --model openai/gpt-4o
     """
@@ -480,6 +486,16 @@ def amplify(input, output, mcmc_steps, variance_threshold, filter_rule, model, a
             return
         failures = filtered_failures
         logger.info(f"Filtered to {len(failures)} failure types: {list(failures.keys())}")
+
+    # Apply ignore filter if specified
+    if ignore_rule:
+        filtered_failures = {rule: samples for rule, samples in failures.items() if rule not in ignore_rule}
+        if not filtered_failures:
+            logger.warning(f"All samples were excluded by ignore rules: {ignore_rule}")
+            return
+        excluded_count = len(failures) - len(filtered_failures)
+        failures = filtered_failures
+        logger.info(f"Excluded {excluded_count} failure types, processing {len(failures)} failure types: {list(failures.keys())}")
 
     # Load already-processed scenarios for idempotency
     processed_scenarios = load_processed_scenarios(output_path)

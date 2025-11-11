@@ -160,6 +160,7 @@ Importantly, running the above command multiple times (to the same output file) 
 redcodegen amplify -i results.jsonl -o amplified.jsonl # basic amplification
 redcodegen amplify -i results.jsonl -o amplified.jsonl --mcmc-steps 32 # more exploration
 redcodegen amplify -i results.jsonl -o amplified.jsonl -r py/sql-injection # filter to specific rule
+redcodegen amplify -i results.jsonl -o amplified.jsonl -x py/path-injection # exclude specific rule
 redcodegen amplify -i results.jsonl -o amplified.jsonl # resume partial run
 redcodegen amplify -i results.jsonl -o amplified.jsonl --model openai/gpt-4o # switch model
 ```
