@@ -7,9 +7,12 @@ import rich_click as click
 import jsonlines
 import logging
 import dspy
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import List, Set, Dict, Any
+from multiprocessing import Pool, Manager
+from threading import Thread
 from cwe2.database import Database
 
 from redcodegen.constants import CWE_TOP_25, create_lm
@@ -204,6 +207,130 @@ def append_amplify_record(record: Dict[str, Any], output_path: Path):
         writer.write(record)
 
 
+def process_scenario_worker(
+    task_queue,
+    write_queue,
+    mcmc_steps: int,
+    variance_threshold: float,
+    model: str,
+    api_key: str,
+    api_base: str,
+    temperature: float,
+    log_level: int
+):
+    """Worker function that pulls tasks from queue and processes them.
+
+    Args:
+        task_queue: Queue to pull (scenario, rule) tasks from
+        write_queue: Queue to write completed records to
+        mcmc_steps: Number of MCMC turns
+        variance_threshold: Beta variance threshold
+        model: Model identifier
+        api_key: API key
+        api_base: API base URL
+        temperature: Temperature for generation
+        log_level: Logging level (e.g., logging.INFO, logging.DEBUG)
+    """
+    # Import here to avoid issues with multiprocessing
+    from redcodegen.kernels import LMRephrasingKernel
+    from redcodegen.uncertainty import mcmc
+    from redcodegen.constants import create_lm
+
+    # Set up logging for this worker process
+    worker_logger = logging.getLogger("redcodegen")
+    worker_logger.setLevel(log_level)
+    worker_logger.addHandler(RichHandler(rich_tracebacks=True))
+
+    # Each process needs its own DSPy configuration
+    lm = create_lm(model_name=model, temperature=temperature, api_key=api_key, api_base=api_base)
+    dspy.configure(lm=lm)
+
+    worker_logger.debug("Worker started, waiting for tasks...")
+
+    # Process tasks until we receive sentinel
+    while True:
+        task = task_queue.get()
+
+        if task is None:  # Sentinel value to stop
+            worker_logger.debug("Worker received stop signal")
+            break
+
+        scenario, rule = task
+        seed = scenario["scenario"]
+
+        worker_logger.debug(f"Processing scenario for {rule}: {seed[:50]}...")
+
+        try:
+            # Run MCMC for successes (find non-vulnerable prompts)
+            worker_logger.debug(f"  Running MCMC for successes...")
+            successes = mcmc(
+                seed,
+                LMRephrasingKernel(),
+                turns=mcmc_steps,
+                find_failure=False,
+                threshold=variance_threshold,
+                symmetric=True
+            )[1:]  # crop seed
+
+            # Run MCMC for failures (find vulnerable prompts)
+            worker_logger.debug(f"  Running MCMC for failures...")
+            failures_mcmc = mcmc(
+                seed,
+                LMRephrasingKernel(),
+                turns=mcmc_steps,
+                find_failure=True,
+                threshold=variance_threshold,
+                symmetric=True
+            )[1:]  # crop seed
+
+            # Build record
+            record = build_amplify_record(
+                rule=rule,
+                seed=seed,
+                successes=successes,
+                failures=failures_mcmc,
+                metadata={
+                    "turns": mcmc_steps,
+                    "beta_variance_threshold": variance_threshold
+                }
+            )
+
+            # Write directly to queue
+            write_queue.put(record)
+            worker_logger.info(f"  ✓ Completed {rule} (successes: {len(successes)}, failures: {len(failures_mcmc)})")
+
+        except Exception as e:
+            worker_logger.error(f"  ✗ Failed to amplify scenario for {rule}: {e}")
+            # Don't put anything in write queue on failure
+            continue
+
+
+def file_writer_worker(write_queue, output_path: Path, total_scenarios: int):
+    """Long-running thread that consumes records from queue and writes to file.
+
+    Args:
+        write_queue: Queue containing records to write
+        output_path: Path to output file
+        total_scenarios: Total number of scenarios to process (for progress tracking)
+    """
+    counter = 0
+    while True:
+        record = write_queue.get()
+        if record is None:  # Sentinel value to stop
+            break
+        try:
+            append_amplify_record(record, output_path)
+            counter += 1
+            successes_count = len(record["mcmc_successes"])
+            failures_count = len(record["mcmc_failures"])
+            logger.info(
+                f"[{counter}/{total_scenarios}] Wrote {record['type']} "
+                f"(successes: {successes_count} chains, failures: {failures_count} chains)"
+            )
+        except Exception as e:
+            logger.error(f"  ✗ Failed to write record: {e}")
+
+
 @click.group()
 @click.option(
     '--verbose', '-v',
@@ -392,6 +519,12 @@ def generate(cwes, use_top_25, min_samples, output, model, api_key, api_base, te
     help='Beta variance threshold for stopping (default: 0.015)'
 )
 @click.option(
+    '--workers', '-w',
+    default=None,
+    type=int,
+    help='Number of parallel workers (default: CPU count)'
+)
+@click.option(
     '--filter-rule', '-r',
     multiple=True,
     help='Specific CodeQL rule(s) to process (can specify multiple times)'
@@ -422,7 +555,7 @@ def generate(cwes, use_top_25, min_samples, output, model, api_key, api_base, te
     type=float,
     help='Temperature for rephrasing (default: 0.8)'
 )
-def amplify(input, output, mcmc_steps, variance_threshold, filter_rule, ignore_rule, model, api_key, api_base, temperature):
+def amplify(input, output, mcmc_steps, variance_threshold, workers, filter_rule, ignore_rule, model, api_key, api_base, temperature):
     """Amplify vulnerable scenarios using MCMC to explore failure boundaries.
 
     Takes output from 'generate' command and runs MCMC to find nearby prompts
@@ -502,68 +635,79 @@ def amplify(input, output, mcmc_steps, variance_threshold, filter_rule, ignore_r
     if processed_scenarios:
         logger.info(f"Resuming from existing output, will skip {len(processed_scenarios)} already-processed scenarios")
 
-    # Process each failure type
-    total_scenarios = sum(len(samples) for samples in failures.values())
-    scenario_counter = 0
+    # Set up parallelization
+    n_workers = workers if workers is not None else os.cpu_count()
+    logger.info(f"Using {n_workers} parallel workers")
 
-    for rule_idx, (rule, samples) in enumerate(failures.items(), 1):
-        logger.info(f"Processing {len(samples)} scenarios for {rule} (rule {rule_idx}/{len(failures)})")
+    # Create manager and queues
+    manager = Manager()
+    task_queue = manager.Queue()
+    write_queue = manager.Queue()
 
-        for sample_idx, scenario in enumerate(samples, 1):
-            scenario_counter += 1
-            seed = scenario["scenario"]
+    # Count total scenarios to process
+    all_tasks = []
+    for rule, samples in failures.items():
+        for scenario in samples:
+            if (rule, scenario["scenario"]) not in processed_scenarios:
+                all_tasks.append((scenario, rule))
 
-            # Check if already processed
-            if (rule, seed) in processed_scenarios:
-                logger.debug(f"Skipping already-processed scenario: {rule}, {seed[:50]}...")
-                continue
+    total_scenarios = len(all_tasks)
+    logger.info(f"Total scenarios to process: {total_scenarios}")
 
-            logger.info(f"[{scenario_counter}/{total_scenarios}] Amplifying scenario for {rule}")
-            logger.debug(f"  Seed: {seed[:50]}...")
+    if total_scenarios == 0:
+        logger.info("All scenarios already processed!")
+        return
 
-            try:
-                # Run MCMC for successes (find non-vulnerable prompts)
-                logger.debug(f"  Running MCMC for successes...")
-                successes = mcmc(
-                    seed,
-                    LMRephrasingKernel(),
-                    turns=mcmc_steps,
-                    find_failure=False,
-                    threshold=variance_threshold,
-                    symmetric=True
-                )[1:] # crop seed
+    # Start file writer thread
+    writer_thread = Thread(target=file_writer_worker, args=(write_queue, output_path, total_scenarios))
+    writer_thread.start()
+    logger.debug("Started file writer thread")
 
-                # Run MCMC for failures (find vulnerable prompts)
-                logger.debug(f"  Running MCMC for failures...")
-                failures_mcmc = mcmc(
-                    seed,
-                    LMRephrasingKernel(),
-                    turns=mcmc_steps,
-                    find_failure=True,
-                    threshold=variance_threshold,
-                    symmetric=True
-                )[1:] # crop seed
+    try:
+        # Populate task queue
+        logger.debug(f"Populating task queue with {total_scenarios} tasks...")
+        for task in all_tasks:
+            task_queue.put(task)
 
-                # Build and save record
-                record = build_amplify_record(
-                    rule=rule,
-                    seed=seed,
-                    successes=successes,
-                    failures=failures_mcmc,
-                    metadata={
-                        "turns": mcmc_steps,
-                        "beta_variance_threshold": variance_threshold
-                    }
-                )
+        # Add sentinel values for workers to stop
+        for _ in range(n_workers):
+            task_queue.put(None)
 
-                append_amplify_record(record, output_path)
-                logger.info(f"  ✓ Completed (successes: {len(successes)} chains, failures: {len(failures_mcmc)} chains)")
+        logger.debug("Task queue populated")
 
-            except Exception as e:
-                logger.error(f"  ✗ Failed to amplify scenario: {e}")
-                continue
+        # Start worker processes
+        current_log_level = redcodegen_logger.level
+        with Pool(processes=n_workers) as pool:
+            # Start all workers
+            worker_args = (
+                task_queue,
+                write_queue,
+                mcmc_steps,
+                variance_threshold,
+                model,
+                api_key,
+                api_base,
+                temperature,
+                current_log_level
+            )
 
-    logger.info(f"Completed! Processed scenarios saved to {output_path}")
+            # Use apply_async to start workers that will process tasks from queue
+            results = [pool.apply_async(process_scenario_worker, worker_args) for _ in range(n_workers)]
+
+            # Wait for all workers to complete
+            for result in results:
+                result.get()
+
+        logger.info("All workers finished")
+
+    finally:
+        # Signal writer thread to stop and wait for it
+        logger.debug("Sending shutdown signal to writer thread")
+        write_queue.put(None)
+        writer_thread.join()
+        logger.debug("Writer thread finished")
+
+    logger.info(f"Completed! Processed {total_scenarios} scenarios saved to {output_path}")
 
 
 if __name__ == '__main__':

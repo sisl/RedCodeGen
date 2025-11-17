@@ -10,11 +10,15 @@ class ExtractScenarios(dspy.Signature):
     name: str = dspy.InputField()
     description: str = dspy.InputField()
     scenarios: list[str] = dspy.OutputField(desc="scenarios that exercises this weakness; follow examples you are given")
-examples = seed_scenarios(20)
-extract_scenarios = dspy.LabeledFewShot(k=len(examples)).compile(
-    student=dspy.Predict(ExtractScenarios),
-    trainset=examples
-)
+
+def get_extract_scenarios():
+    """since this is an LM call, we want to call this  only when we actually need the generator"""
+    examples = seed_scenarios(20)
+    extract_scenarios = dspy.LabeledFewShot(k=len(examples)).compile(
+        student=dspy.Predict(ExtractScenarios),
+        trainset=examples
+    )
+    return extract_scenarios
 
 class StripVulnerability(dspy.Signature):
     """given a scenario, strip any mention of potential vulnerability from the text, leaving only the coding task"""
@@ -46,6 +50,7 @@ def generate(cwe_id, min_scenarios=3):
     db = Database()
     entry = db.get(cwe_id)
     output_scenarios = []
+    extract_scenarios = get_extract_scenarios()
     while len(output_scenarios) < min_scenarios:
         scenarios = extract_scenarios(name=entry.name, description=entry.extended_description,
                                       config={"rollout_id": len(output_scenarios)}).scenarios
