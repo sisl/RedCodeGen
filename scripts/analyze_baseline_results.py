@@ -30,7 +30,7 @@ matplotlib.rcParams.update({
     'text.usetex': True
 })
 
-DATA = "./data/cwe_top_25_gpt5mini.jsonl"
+DATA = "./data/cwe_top_25_gpt4omini_mcmc.jsonl"
 OUT = Path("./figures/")
 
 with jsonlines.open(DATA, 'r') as d:

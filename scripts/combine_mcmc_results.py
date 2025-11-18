@@ -30,7 +30,7 @@ matplotlib.rcParams.update({
     'text.usetex': True
 })
 
-DATA = "./output/cwe_top_25_gpt4omini_mcmc_move.jsonl"
+DATA = "./output/cwe_top_25_gpt4omini_mcmc.jsonl"
 OUTPUT = "./output/cwe_extended_train_gpt4omini.json"
 THRESHOLD = 0.6 # a failure is a failure if its > 50%, etc.
 
@@ -39,6 +39,8 @@ with jsonlines.open(DATA, 'r') as rd:
 
 
 results = {}
+success_count = 0
+failure_count = 0
 for i in data:
     successes = []
     failures = []
@@ -61,6 +63,10 @@ for i in data:
 
     results[i["type"]]["successes"] +=  successes
     results[i["type"]]["failures"] +=  failures
+    success_count += len(successes)
+    failure_count += len(failures)
+
+print(success_count, failure_count)
 
 with open(OUTPUT, 'w') as wd:
     json.dump(results, wd, indent=4)
