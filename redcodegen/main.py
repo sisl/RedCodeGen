@@ -150,6 +150,35 @@ def load_processed_scenarios(output_path: Path) -> Set[tuple[str, str]]:
     return processed
 
 
+def load_processed_proposals(output_path: Path) -> Dict[str, Set[str]]:
+    """Load proposals that have already been processed in the propose command.
+
+    Args:
+        output_path: Path to the propose output JSONL file
+
+    Returns:
+        Dict mapping vulnerability_type to set of completed goals ('nominal', 'failure')
+    """
+    from collections import defaultdict
+    processed = defaultdict(set)
+
+    if not output_path.exists():
+        return dict(processed)
+
+    try:
+        with jsonlines.open(output_path) as reader:
+            for record in reader:
+                if 'type' in record and 'goal' in record:
+                    processed[record['type']].add(record['goal'])
+
+        total_count = sum(len(goals) for goals in processed.values())
+        logger.info(f"Found {total_count} already-processed proposals in {output_path}")
+    except Exception as e:
+        logger.warning(f"Could not read existing output file: {e}")
+
+    return dict(processed)
+
+
 def build_amplify_record(
     rule: str,
     seed: str,
@@ -885,85 +914,118 @@ def propose(output, base_model, peft, num_samples, variance_threshold, min_rollo
 
     logger.info(f"Testing {len(vulns_to_test)} total vulnerabilities: {vulns_to_test}")
 
+    # Load already-processed proposals for idempotency
+    processed_proposals = load_processed_proposals(output_path)
+
+    # Calculate how many tasks remain per vulnerability
+    remaining_tasks = []
+    for vuln_type in vulns_to_test:
+        completed_goals = processed_proposals.get(vuln_type, set())
+        nominal_count = len([g for g in completed_goals if g == 'nominal'])
+        failure_count = len([g for g in completed_goals if g == 'failure'])
+
+        remaining_nominal = max(0, num_samples - nominal_count)
+        remaining_failure = max(0, num_samples - failure_count)
+
+        remaining_tasks.append((vuln_type, remaining_nominal, remaining_failure))
+
+    total_remaining = sum(n + f for _, n, f in remaining_tasks)
+    total_possible = len(vulns_to_test) * num_samples * 2
+    skipped = total_possible - total_remaining
+
+    if skipped > 0:
+        logger.info(f"Resuming from existing output: {skipped} tasks already completed, {total_remaining} remaining")
+
+    if total_remaining == 0:
+        logger.info("All proposals already completed!")
+        return
+
     # Process each vulnerability type
-    total_tasks = len(vulns_to_test) * num_samples * 2  # 2 = nominal + failure
     task_counter = 0
 
-    logger.info(f"Starting proposal generation: {len(vulns_to_test)} vulnerabilities × {num_samples} samples × 2 goals = {total_tasks} total tasks")
+    for vuln_idx, (vuln_type, remaining_nominal, remaining_failure) in enumerate(remaining_tasks, 1):
+        if remaining_nominal == 0 and remaining_failure == 0:
+            logger.info(f"[{vuln_idx}/{len(vulns_to_test)}] Skipping {vuln_type} (already completed)")
+            continue
 
-    for vuln_idx, vuln_type in enumerate(vulns_to_test, 1):
-        logger.info(f"[{vuln_idx}/{len(vulns_to_test)}] Processing vulnerability: {vuln_type}")
+        logger.info(f"[{vuln_idx}/{len(vulns_to_test)}] Processing {vuln_type} (nominal: {remaining_nominal}, failure: {remaining_failure})")
+
+        completed_goals = processed_proposals.get(vuln_type, set())
+        nominal_samples_done = len([g for g in completed_goals if g == 'nominal'])
+        failure_samples_done = len([g for g in completed_goals if g == 'failure'])
 
         for sample_idx in range(1, num_samples + 1):
             # Generate NOMINAL prompt (should NOT cause vulnerability)
-            task_counter += 1
-            logger.info(f"  [{task_counter}/{total_tasks}] Generating NOMINAL prompt {sample_idx}/{num_samples}")
+            if sample_idx > nominal_samples_done:
+                task_counter += 1
+                logger.info(f"  [{task_counter}/{total_remaining}] Generating NOMINAL prompt {sample_idx}/{num_samples}")
 
-            try:
-                request = GenerateRequest(failure_type=vuln_type, goal=Goal.NOMINAL)
-                nominal_prompt = proposal_dist.generate(request)
-                logger.debug(f"    Prompt: {nominal_prompt[:100]}...")
+                try:
+                    request = GenerateRequest(failure_type=vuln_type, goal=Goal.NOMINAL)
+                    nominal_prompt = proposal_dist.generate(request)
+                    logger.debug(f"    Prompt: {nominal_prompt[:100]}...")
 
-                # Quantify the nominal prompt
-                logger.debug(f"    Quantifying with threshold={variance_threshold}, min_rollouts={min_rollouts}")
-                nominal_result = quantify(
-                    nominal_prompt,
-                    threshold=variance_threshold,
-                    min_rollouts=min_rollouts,
-                    return_evaluations=True
-                )
+                    # Quantify the nominal prompt
+                    logger.debug(f"    Quantifying with threshold={variance_threshold}, min_rollouts={min_rollouts}")
+                    nominal_result = quantify(
+                        nominal_prompt,
+                        threshold=variance_threshold,
+                        min_rollouts=min_rollouts,
+                        return_evaluations=True
+                    )
 
-                # Build and save record
-                record = build_propose_record(
-                    vulnerability_type=vuln_type,
-                    goal="nominal",
-                    prompt=nominal_prompt,
-                    quantify_result=nominal_result
-                )
-                append_propose_record(record, output_path)
+                    # Build and save record
+                    record = build_propose_record(
+                        vulnerability_type=vuln_type,
+                        goal="nominal",
+                        prompt=nominal_prompt,
+                        quantify_result=nominal_result
+                    )
+                    append_propose_record(record, output_path)
 
-                failure_count = nominal_result[0].failure_pseudocounts-1
-                nominal_count = nominal_result[0].nominal_pseudocounts-1
-                logger.info(f"    ✓ NOMINAL prompt: {failure_count} failures, {nominal_count} successes")
+                    failure_count = nominal_result[0].failure_pseudocounts-1
+                    nominal_count = nominal_result[0].nominal_pseudocounts-1
+                    logger.info(f"    ✓ NOMINAL prompt: {failure_count} failures, {nominal_count} successes")
 
-            except Exception as e:
-                logger.error(f"    ✗ Failed to generate/quantify NOMINAL prompt: {e}")
-                continue
+                except Exception as e:
+                    logger.error(f"    ✗ Failed to generate/quantify NOMINAL prompt: {e}")
+                    continue
 
             # Generate FAILURE prompt (SHOULD cause vulnerability)
-            task_counter += 1
-            logger.info(f"  [{task_counter}/{total_tasks}] Generating FAILURE prompt {sample_idx}/{num_samples}")
+            if sample_idx > failure_samples_done:
+                task_counter += 1
+                logger.info(f"  [{task_counter}/{total_remaining}] Generating FAILURE prompt {sample_idx}/{num_samples}")
 
-            try:
-                request = GenerateRequest(failure_type=vuln_type, goal=Goal.FAILURE)
-                failure_prompt = proposal_dist.generate(request)
-                logger.debug(f"    Prompt: {failure_prompt[:100]}...")
+                try:
+                    request = GenerateRequest(failure_type=vuln_type, goal=Goal.FAILURE)
+                    failure_prompt = proposal_dist.generate(request)
+                    logger.debug(f"    Prompt: {failure_prompt[:100]}...")
 
-                # Quantify the failure prompt
-                logger.debug(f"    Quantifying with threshold={variance_threshold}, min_rollouts={min_rollouts}")
-                failure_result = quantify(
-                    failure_prompt,
-                    threshold=variance_threshold,
-                    min_rollouts=min_rollouts,
-                    return_evaluations=True
-                )
+                    # Quantify the failure prompt
+                    logger.debug(f"    Quantifying with threshold={variance_threshold}, min_rollouts={min_rollouts}")
+                    failure_result = quantify(
+                        failure_prompt,
+                        threshold=variance_threshold,
+                        min_rollouts=min_rollouts,
+                        return_evaluations=True
+                    )
 
-                # Build and save record
-                record = build_propose_record(
-                    vulnerability_type=vuln_type,
-                    goal="failure",
-                    prompt=failure_prompt,
-                    quantify_result=failure_result
-                )
-                append_propose_record(record, output_path)
+                    # Build and save record
+                    record = build_propose_record(
+                        vulnerability_type=vuln_type,
+                        goal="failure",
+                        prompt=failure_prompt,
+                        quantify_result=failure_result
+                    )
+                    append_propose_record(record, output_path)
 
-                failure_count = failure_result[0].failure_pseudocounts-1
-                nominal_count = failure_result[0].nominal_pseudocounts-1
-                logger.info(f"    ✓ FAILURE prompt: {failure_count} failures, {nominal_count} successes")
+                    failure_count = failure_result[0].failure_pseudocounts-1
+                    nominal_count = failure_result[0].nominal_pseudocounts-1
+                    logger.info(f"    ✓ FAILURE prompt: {failure_count} failures, {nominal_count} successes")
 
-            except Exception as e:
-                logger.error(f"    ✗ Failed to generate/quantify FAILURE prompt: {e}")
-                continue
+                except Exception as e:
+                    logger.error(f"    ✗ Failed to generate/quantify FAILURE prompt: {e}")
+                    continue
 
         logger.info(f"  ✓ Completed {vuln_type}")
 
