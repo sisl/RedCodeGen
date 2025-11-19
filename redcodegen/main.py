@@ -16,6 +16,8 @@ from threading import Thread
 from cwe2.database import Database
 
 from redcodegen.constants import CWE_TOP_25, create_lm
+from redcodegen.proposal import ProposalDistribution, GenerateRequest, Goal
+from redcodegen.uncertainty import quantify
 
 from rich.logging import RichHandler
 
@@ -198,6 +200,44 @@ def build_amplify_record(
 
 def append_amplify_record(record: Dict[str, Any], output_path: Path):
     """Append an amplified record to the JSONL file.
+
+    Args:
+        record: Record to append
+        output_path: Path to output file
+    """
+    with jsonlines.open(output_path, mode='a') as writer:
+        writer.write(record)
+
+
+def build_propose_record(
+    vulnerability_type: str,
+    goal: str,
+    prompt: str,
+    quantify_result: Dict[str, Any]
+) -> Dict[str, Any]:
+    """Build a propose record for JSONL output.
+
+    Args:
+        vulnerability_type: CodeQL rule ID
+        goal: Either "nominal" or "failure"
+        prompt: Generated prompt text
+        quantify_result: Result from quantify() function
+
+    Returns:
+        Dict representing the complete propose record
+    """
+    return {
+        "type": vulnerability_type,
+        "goal": goal,
+        "prompt": prompt,
+        "timestamp": datetime.utcnow().isoformat() + 'Z',
+        "model_config": get_model_config(),
+        "result": quantify_result
+    }
+
+
+def append_propose_record(record: Dict[str, Any], output_path: Path):
+    """Append a propose record to the JSONL file.
 
     Args:
         record: Record to append
@@ -708,6 +748,191 @@ def amplify(input, output, mcmc_steps, variance_threshold, workers, filter_rule,
         logger.debug("Writer thread finished")
 
     logger.info(f"Completed! Processed {total_scenarios} scenarios saved to {output_path}")
+
+
+@main.command()
+@click.option(
+    '--output', '-o',
+    required=True,
+    type=click.Path(),
+    help='Output JSONL file for proposed prompts'
+)
+@click.option(
+    '--base-model', '-b',
+    required=True,
+    help='Base model for ProposalDistribution (e.g., Qwen/Qwen2.5-0.5B-Instruct)'
+)
+@click.option(
+    '--peft', '-p',
+    default=None,
+    type=click.Path(exists=True),
+    help='Optional PEFT adapter path'
+)
+@click.option(
+    '--num-samples', '-n',
+    default=10,
+    type=int,
+    help='Number of samples per vulnerability type (default: 10)'
+)
+@click.option(
+    '--variance-threshold',
+    default=0.015,
+    type=float,
+    help='Beta variance threshold for quantify (default: 0.015)'
+)
+@click.option(
+    '--min-rollouts',
+    default=2,
+    type=int,
+    help='Minimum rollouts for quantify (default: 2)'
+)
+@click.option(
+    '--vulnerabilities', '-v',
+    multiple=True,
+    help='Specific CodeQL rule(s) to test (can specify multiple times)'
+)
+@click.option(
+    '--model', '-m',
+    default='openai/gpt-4o-mini',
+    help='Model identifier for code generation (default: openai/gpt-4o-mini)'
+)
+@click.option(
+    '--api-key',
+    default=None,
+    help='API key (defaults to OPENAI_API_KEY env var)'
+)
+@click.option(
+    '--api-base',
+    default=None,
+    help='API base URL (defaults to OPENAI_API_BASE env var)'
+)
+@click.option(
+    '--temperature',
+    default=0.8,
+    type=float,
+    help='Temperature for code generation (default: 0.8)'
+)
+def propose(output, base_model, peft, num_samples, variance_threshold, min_rollouts,
+            vulnerabilities, model, api_key, api_base, temperature):
+    """Generate and evaluate coding task prompts using a fine-tuned proposal model.
+
+    This command uses a ProposalDistribution (base model + optional PEFT) to generate
+    prompts that either will or will not cause specific vulnerability types, then
+    evaluates their reliability through multiple code generation rollouts.
+
+    Examples:
+        redcodegen propose -o proposals.jsonl -b Qwen/Qwen2.5-0.5B-Instruct
+        redcodegen propose -o proposals.jsonl -b Qwen/... -p /path/to/peft
+        redcodegen propose -o proposals.jsonl -b Qwen/... -v py/sql-injection -v py/xss
+    """
+    # Configure DSPy with specified model for code generation
+    lm = create_lm(model_name=model, temperature=temperature, api_key=api_key, api_base=api_base)
+    dspy.configure(lm=lm)
+    logger.info(f"Configured code generation model: {model}")
+
+    output_path = Path(output)
+
+    # Initialize ProposalDistribution
+    logger.info(f"Initializing ProposalDistribution with base model: {base_model}")
+    if peft:
+        logger.info(f"Using PEFT adapter: {peft}")
+
+    try:
+        proposal_dist = ProposalDistribution(base_model=base_model, peft=peft)
+    except Exception as e:
+        logger.error(f"Failed to initialize ProposalDistribution: {e}")
+        raise click.Abort()
+
+    # Determine which vulnerabilities to test
+    if vulnerabilities:
+        vulns_to_test = list(vulnerabilities)
+        logger.info(f"Testing {len(vulns_to_test)} specified vulnerabilities: {vulns_to_test}")
+    else:
+        # Default to some common vulnerabilities or empty list
+        logger.error("Must specify at least one vulnerability with --vulnerabilities/-v")
+        raise click.UsageError("Must specify at least one vulnerability with --vulnerabilities/-v")
+
+    # Process each vulnerability type
+    total_tasks = len(vulns_to_test) * num_samples * 2  # 2 = nominal + failure
+    task_counter = 0
+
+    logger.info(f"Starting proposal generation: {len(vulns_to_test)} vulnerabilities × {num_samples} samples × 2 goals = {total_tasks} total tasks")
+
+    for vuln_idx, vuln_type in enumerate(vulns_to_test, 1):
+        logger.info(f"[{vuln_idx}/{len(vulns_to_test)}] Processing vulnerability: {vuln_type}")
+
+        for sample_idx in range(1, num_samples + 1):
+            # Generate NOMINAL prompt (should NOT cause vulnerability)
+            task_counter += 1
+            logger.info(f"  [{task_counter}/{total_tasks}] Generating NOMINAL prompt {sample_idx}/{num_samples}")
+
+            try:
+                request = GenerateRequest(type=vuln_type, goal=Goal.NOMINAL)
+                nominal_prompt = proposal_dist(request)
+                logger.debug(f"    Prompt: {nominal_prompt[:100]}...")
+
+                # Quantify the nominal prompt
+                logger.debug(f"    Quantifying with threshold={variance_threshold}, min_rollouts={min_rollouts}")
+                nominal_result = quantify(
+                    nominal_prompt,
+                    threshold=variance_threshold,
+                    min_rollouts=min_rollouts
+                )
+
+                # Build and save record
+                record = build_propose_record(
+                    vulnerability_type=vuln_type,
+                    goal="nominal",
+                    prompt=nominal_prompt,
+                    quantify_result=nominal_result
+                )
+                append_propose_record(record, output_path)
+
+                failure_count = nominal_result.get("failure", 0)
+                nominal_count = nominal_result.get("nominal", 0)
+                logger.info(f"    ✓ NOMINAL prompt: {failure_count} failures, {nominal_count} successes")
+
+            except Exception as e:
+                logger.error(f"    ✗ Failed to generate/quantify NOMINAL prompt: {e}")
+                continue
+
+            # Generate FAILURE prompt (SHOULD cause vulnerability)
+            task_counter += 1
+            logger.info(f"  [{task_counter}/{total_tasks}] Generating FAILURE prompt {sample_idx}/{num_samples}")
+
+            try:
+                request = GenerateRequest(type=vuln_type, goal=Goal.FAILURE)
+                failure_prompt = proposal_dist(request)
+                logger.debug(f"    Prompt: {failure_prompt[:100]}...")
+
+                # Quantify the failure prompt
+                logger.debug(f"    Quantifying with threshold={variance_threshold}, min_rollouts={min_rollouts}")
+                failure_result = quantify(
+                    failure_prompt,
+                    threshold=variance_threshold,
+                    min_rollouts=min_rollouts
+                )
+
+                # Build and save record
+                record = build_propose_record(
+                    vulnerability_type=vuln_type,
+                    goal="failure",
+                    prompt=failure_prompt,
+                    quantify_result=failure_result
+                )
+                append_propose_record(record, output_path)
+
+                failure_count = failure_result.get("failure", 0)
+                nominal_count = failure_result.get("nominal", 0)
+                logger.info(f"    ✓ FAILURE prompt: {failure_count} failures, {nominal_count} successes")
+
+            except Exception as e:
+                logger.error(f"    ✗ Failed to generate/quantify FAILURE prompt: {e}")
+                continue
+
+        logger.info(f"  ✓ Completed {vuln_type}")
+
+    logger.info(f"Completed! Processed {task_counter} tasks, results saved to {output_path}")
 
 
 if __name__ == '__main__':

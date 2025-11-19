@@ -16,7 +16,10 @@ class FailureBeta:
     failure_pseudocounts: int
     nominal_pseudocounts: int
 
-def quantify(prompt, threshold=0.015, min_rollouts=5, no_fail_prior=1, fail_prior=1, n_processes=None) -> FailureBeta:
+def quantify(
+        prompt, threshold=0.015, min_rollouts=5, no_fail_prior=1,
+        fail_prior=1, return_evaluations=False
+) -> FailureBeta:
     """Given prompt, we perform k rollouts or until variance threshold dips below threshold to obtain a beta distribution over failures.
 
     Args:
@@ -25,7 +28,7 @@ def quantify(prompt, threshold=0.015, min_rollouts=5, no_fail_prior=1, fail_prio
         min_rollouts: Minimum number of rollouts
         no_fail_prior: Prior for non-failures
         fail_prior: Prior for failures
-        n_processes: Number of processes for parallel evaluation (None = use CPU count)
+        return_evaluations: Return the raw evaluation results
     """
 
     k = min_rollouts
@@ -65,13 +68,23 @@ def quantify(prompt, threshold=0.015, min_rollouts=5, no_fail_prior=1, fail_prio
         k += 1
         # print(var)
 
+    if return_evaluations:
+        results = set([i["rule"] for i in sum(list(evaluations_cache.values()), [])])
+
+        return (
+            FailureBeta(
+                failure_pseudocounts=fail,
+                nominal_pseudocounts=no_fail
+            ), results
+        )
+
     return FailureBeta(
         failure_pseudocounts=fail,
         nominal_pseudocounts=no_fail
     )
 
 
-def mcmc(tau: str, kernel: Kernel, turns=100, find_failure=True, symmetric=False, threshold=0.015, n_processes=None) -> list[Tuple[str, FailureBeta]]:
+def mcmc(tau: str, kernel: Kernel, turns=100, find_failure=True, symmetric=False, threshold=0.015) -> list[Tuple[str, FailureBeta]]:
     """Run MCMC step; provide tau and a kernel, and we'll give tau'.
 
     We will keep sampling prompts until one acceptance happens,
@@ -84,7 +97,6 @@ def mcmc(tau: str, kernel: Kernel, turns=100, find_failure=True, symmetric=False
         turns (int): Number of MCMC turns to run, accept or not.
         symmetric (bool): Whether or not we consider proposal kernel as symmetric.
         threshold (optional, float): The variance of the beta distribution given must be below thi to stop sampling.
-        n_processes (optional, int): Number of processes for parallel evaluation (None = use CPU count).
 
     Returns:
         str: The newly accepted prompt/trajectory.
@@ -99,7 +111,7 @@ def mcmc(tau: str, kernel: Kernel, turns=100, find_failure=True, symmetric=False
                                     (fd.failure_pseudocounts + fd.nominal_pseudocounts -2))
 
     # compute distirbution of initial sample
-    fail_dist = quantify(tau, threshold, n_processes=n_processes)
+    fail_dist = quantify(tau, threshold)
     samples = [(tau, fail_dist)]
 
     for i in range(turns):
@@ -108,7 +120,7 @@ def mcmc(tau: str, kernel: Kernel, turns=100, find_failure=True, symmetric=False
         # get next sample
         (tau, fail_dist) = samples[-1]
         tau_prime = kernel.sample(tau, state=(i+1)*(1 if find_failure else -1))
-        fail_dist_prime = quantify(tau_prime, threshold, n_processes=n_processes)
+        fail_dist_prime = quantify(tau_prime, threshold)
 
         bonus = 0.0
         if not symmetric:
