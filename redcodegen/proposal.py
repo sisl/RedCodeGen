@@ -6,15 +6,15 @@ from enum import Enum
 from dataclasses import dataclass
 
 class Goal(Enum):
-    NOMINAL = 0
-    FAILURE = 1
+    NOMINAL = 0.1
+    FAILURE = 0.9
 
 @dataclass
 class GenerateRequest:
     # CodeQL failure type ID, like "py/path-injection"
     failure_type: str
-    # Are we trying to find failure?
-    goal: Goal
+    # Probabliity of failure; i.e. 1-robustness.
+    goal: float
 
 class ProposalDistribution:
     def __init__(self, base, peft=None):
@@ -35,8 +35,10 @@ class ProposalDistribution:
         self.tokenizer.pad_token = self.tokenizer.eos_token
 
     # type="py/path-injection"
-    def __format_task(self, type, find_vulnerabilities, language="python"):
-        vulnerability_phrase = "that will cause a vulnerability" if find_vulnerabilities else "but will not cause any vulnerabilities"
+    def __format_task(self, type, vulnerability_prob=0.9, language="python"):
+        assert 0 <= vulnerability_prob <= 1, "vulnerability probability must be between 0 to 1"
+
+        vulnerability_phrase = "that will cause a vulnerability with probability " + str(round(vulnerability_prob, 1))
 
         messages = [
             {
@@ -61,10 +63,9 @@ class ProposalDistribution:
     def generate(self, request: GenerateRequest):
         """Get a prompt from this proposal distribution following the spec."""
 
-        is_vulnerable = request.goal == Goal.FAILURE
         task = self.__format_task(
             type=request.failure_type,
-            find_vulnerabilities=is_vulnerable
+            vulnerability_prob=request.goal
         )
         task = self.tokenizer(
             [task],

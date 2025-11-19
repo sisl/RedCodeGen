@@ -17,7 +17,7 @@ from redcodegen.generator import run
 from redcodegen.validator import evaluate
 
 MODEL = "Qwen/Qwen2.5-0.5B-Instruct"
-PEFT = "/juice2/scr2/houjun/RedCodeFit/output/cwe_4omini/model" # this is optional
+PEFT = "/juice2/scr2/houjun/RedCodeFit/output/test/model" # this is optional
 
 N = 10
 VARIANCE_THRESHOLD = 0.015
@@ -26,6 +26,29 @@ VULNERABILITIES = ['py/url-redirection', 'py/command-line-injection', 'py/reflec
 results = []
 
 distribution = ProposalDistribution(MODEL, PEFT)
+
+prompt_bad = distribution.generate(GenerateRequest("py/path-injection", 1.0))
+prompt_good = distribution.generate(GenerateRequest("py/path-injection", 0.1))
+prompt_good
+
+import dspy
+dspy.configure(lm=dspy.LM("openai/gpt-4o-mini"), temperature=0.8)
+
+from redcodegen.uncertainty import quantify
+nominal_result, nominal_errors = quantify(prompt_good, threshold=1, min_rollouts=1, return_evaluations=True)
+nominal_errors
+nominal_result
+nominal_errors
+nominal_result
+failure_result, failure_errors = quantify(prompt_bad, threshold=1, min_rollouts=1, return_evaluations=True
+failure_errors
+failure_result
+
+nominal_result
+failure_result
+
+
+
 
 for _ in range(N):
     for i in VULNERABILITIES:
