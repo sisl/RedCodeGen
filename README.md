@@ -223,10 +223,9 @@ redcodegen propose -o proposals.jsonl -b Qwen/... -v py/xss --model openai/gpt-4
 
 ### Method
 
-1. **Proposal Model Setup**: Load a base model (e.g., Qwen/Qwen2.5-0.5B-Instruct) with an optional PEFT adapter that has been fine-tuned to generate vulnerability-aware prompts.
-2. **Prompt Generation**: For each specified vulnerability type, generate multiple prompts with two goals: (a) `nominal` - prompts designed to produce safe code, and (b) `failure` - prompts designed to trigger the vulnerability.
-3. **Reliability Quantification**: For each generated prompt, roll out a code generation model multiple times (controlled by `--min-rollouts`) and evaluate each sample with CodeQL. Continue until the variance in the Beta distribution drops below the threshold (controlled by `--variance-threshold`), indicating sufficient confidence in the prompt's reliability.
-4. **Result Recording**: Record each prompt with its goal, generated code samples, and evaluation results, providing quantified metrics on how reliably the prompt achieves its intended goal.
+1. **Proposal Model Setup**: Load an (instruction-tuned) proposal model, optionally with a PEFT, that you want to rollout against a defender.
+2. **Prompt Generation**: For each specified vulnerability type you supply, generate multiple prompts with two goals: (a) `nominal` --- prompts designed to produce safe code but exercise the vulnerability type, and (b) `failure` - prompts designed to trigger the vulnerability.
+3. **Reliability Quantification**: For each generated prompt, roll out a code generation model multiple times (controlled by `--min-rollouts`) and evaluate each sample with CodeQL. Continue until the variance in the Beta distribution drops below the threshold (controlled by `--variance-threshold`), indicating sufficient confidence in the prompt's failure probability.
 
 ## Acknowledgements
 We thank the Schmidt Sciences Foundation's trustworthy AI agenda for supporting this work.
