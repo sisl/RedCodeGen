@@ -232,7 +232,11 @@ def build_propose_record(
         "prompt": prompt,
         "timestamp": datetime.utcnow().isoformat() + 'Z',
         "model_config": get_model_config(),
-        "result": quantify_result
+        "result": {
+            "failure": quantify_result[0].failure_pseudocounts-1,
+            "nominal": quantify_result[0].nominal_pseudocounts-1,
+            "error_types": list(quantify_result[1])
+        }
     }
 
 
@@ -845,7 +849,7 @@ def propose(output, base_model, peft, num_samples, variance_threshold, min_rollo
         logger.info(f"Using PEFT adapter: {peft}")
 
     try:
-        proposal_dist = ProposalDistribution(base_model=base_model, peft=peft)
+        proposal_dist = ProposalDistribution(base=base_model, peft=peft)
     except Exception as e:
         logger.error(f"Failed to initialize ProposalDistribution: {e}")
         raise click.Abort()
@@ -896,8 +900,8 @@ def propose(output, base_model, peft, num_samples, variance_threshold, min_rollo
             logger.info(f"  [{task_counter}/{total_tasks}] Generating NOMINAL prompt {sample_idx}/{num_samples}")
 
             try:
-                request = GenerateRequest(type=vuln_type, goal=Goal.NOMINAL)
-                nominal_prompt = proposal_dist(request)
+                request = GenerateRequest(failure_type=vuln_type, goal=Goal.NOMINAL)
+                nominal_prompt = proposal_dist.generate(request)
                 logger.debug(f"    Prompt: {nominal_prompt[:100]}...")
 
                 # Quantify the nominal prompt
@@ -905,7 +909,8 @@ def propose(output, base_model, peft, num_samples, variance_threshold, min_rollo
                 nominal_result = quantify(
                     nominal_prompt,
                     threshold=variance_threshold,
-                    min_rollouts=min_rollouts
+                    min_rollouts=min_rollouts,
+                    return_evaluations=True
                 )
 
                 # Build and save record
@@ -917,8 +922,8 @@ def propose(output, base_model, peft, num_samples, variance_threshold, min_rollo
                 )
                 append_propose_record(record, output_path)
 
-                failure_count = nominal_result.get("failure", 0)
-                nominal_count = nominal_result.get("nominal", 0)
+                failure_count = nominal_result[0].failure_pseudocounts-1
+                nominal_count = nominal_result[0].nominal_pseudocounts-1
                 logger.info(f"    ✓ NOMINAL prompt: {failure_count} failures, {nominal_count} successes")
 
             except Exception as e:
@@ -930,8 +935,8 @@ def propose(output, base_model, peft, num_samples, variance_threshold, min_rollo
             logger.info(f"  [{task_counter}/{total_tasks}] Generating FAILURE prompt {sample_idx}/{num_samples}")
 
             try:
-                request = GenerateRequest(type=vuln_type, goal=Goal.FAILURE)
-                failure_prompt = proposal_dist(request)
+                request = GenerateRequest(failure_type=vuln_type, goal=Goal.FAILURE)
+                failure_prompt = proposal_dist.generate(request)
                 logger.debug(f"    Prompt: {failure_prompt[:100]}...")
 
                 # Quantify the failure prompt
@@ -939,7 +944,8 @@ def propose(output, base_model, peft, num_samples, variance_threshold, min_rollo
                 failure_result = quantify(
                     failure_prompt,
                     threshold=variance_threshold,
-                    min_rollouts=min_rollouts
+                    min_rollouts=min_rollouts,
+                    return_evaluations=True
                 )
 
                 # Build and save record
@@ -951,8 +957,8 @@ def propose(output, base_model, peft, num_samples, variance_threshold, min_rollo
                 )
                 append_propose_record(record, output_path)
 
-                failure_count = failure_result.get("failure", 0)
-                nominal_count = failure_result.get("nominal", 0)
+                failure_count = failure_result[0].failure_pseudocounts-1
+                nominal_count = failure_result[0].nominal_pseudocounts-1
                 logger.info(f"    ✓ FAILURE prompt: {failure_count} failures, {nominal_count} successes")
 
             except Exception as e:
