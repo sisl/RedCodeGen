@@ -792,6 +792,11 @@ def amplify(input, output, mcmc_steps, variance_threshold, workers, filter_rule,
     help='Specific CodeQL rule(s) to test (can specify multiple times)'
 )
 @click.option(
+    '--vulnerabilities-file', '-f',
+    type=click.Path(exists=True),
+    help='File containing CodeQL rules to test (one per line)'
+)
+@click.option(
     '--model', '-m',
     default='openai/gpt-4o-mini',
     help='Model identifier for code generation (default: openai/gpt-4o-mini)'
@@ -813,7 +818,7 @@ def amplify(input, output, mcmc_steps, variance_threshold, workers, filter_rule,
     help='Temperature for code generation (default: 0.8)'
 )
 def propose(output, base_model, peft, num_samples, variance_threshold, min_rollouts,
-            vulnerabilities, model, api_key, api_base, temperature):
+            vulnerabilities, vulnerabilities_file, model, api_key, api_base, temperature):
     """Generate and evaluate coding task prompts using a fine-tuned proposal model.
 
     This command uses a ProposalDistribution (base model + optional PEFT) to generate
@@ -821,9 +826,11 @@ def propose(output, base_model, peft, num_samples, variance_threshold, min_rollo
     evaluates their reliability through multiple code generation rollouts.
 
     Examples:
-        redcodegen propose -o proposals.jsonl -b Qwen/Qwen2.5-0.5B-Instruct
-        redcodegen propose -o proposals.jsonl -b Qwen/... -p /path/to/peft
+        redcodegen propose -o proposals.jsonl -b Qwen/Qwen2.5-0.5B-Instruct -v py/sql-injection
+        redcodegen propose -o proposals.jsonl -b Qwen/... -p /path/to/peft -v py/xss
         redcodegen propose -o proposals.jsonl -b Qwen/... -v py/sql-injection -v py/xss
+        redcodegen propose -o proposals.jsonl -b Qwen/... -f vulnerabilities.txt
+        redcodegen propose -o proposals.jsonl -b Qwen/... -f vulns.txt -v py/extra-vuln
     """
     # Configure DSPy with specified model for code generation
     lm = create_lm(model_name=model, temperature=temperature, api_key=api_key, api_base=api_base)
@@ -844,13 +851,35 @@ def propose(output, base_model, peft, num_samples, variance_threshold, min_rollo
         raise click.Abort()
 
     # Determine which vulnerabilities to test
+    vulns_to_test = []
+
+    # Add vulnerabilities from -v flag
     if vulnerabilities:
-        vulns_to_test = list(vulnerabilities)
-        logger.info(f"Testing {len(vulns_to_test)} specified vulnerabilities: {vulns_to_test}")
-    else:
-        # Default to some common vulnerabilities or empty list
-        logger.error("Must specify at least one vulnerability with --vulnerabilities/-v")
-        raise click.UsageError("Must specify at least one vulnerability with --vulnerabilities/-v")
+        vulns_to_test.extend(vulnerabilities)
+        logger.info(f"Added {len(vulnerabilities)} vulnerabilities from --vulnerabilities flag")
+
+    # Add vulnerabilities from file
+    if vulnerabilities_file:
+        logger.info(f"Reading vulnerabilities from file: {vulnerabilities_file}")
+        try:
+            with open(vulnerabilities_file, 'r') as f:
+                file_vulns = [line.strip() for line in f if line.strip()]
+            vulns_to_test.extend(file_vulns)
+            logger.info(f"Added {len(file_vulns)} vulnerabilities from file")
+        except Exception as e:
+            logger.error(f"Failed to read vulnerabilities file: {e}")
+            raise click.Abort()
+
+    # Check if we have any vulnerabilities
+    if not vulns_to_test:
+        logger.error("Must specify at least one vulnerability with --vulnerabilities/-v or --vulnerabilities-file/-f")
+        raise click.UsageError("Must specify at least one vulnerability with --vulnerabilities/-v or --vulnerabilities-file/-f")
+
+    # Remove duplicates while preserving order
+    seen = set()
+    vulns_to_test = [v for v in vulns_to_test if not (v in seen or seen.add(v))]
+
+    logger.info(f"Testing {len(vulns_to_test)} total vulnerabilities: {vulns_to_test}")
 
     # Process each vulnerability type
     total_tasks = len(vulns_to_test) * num_samples * 2  # 2 = nominal + failure
