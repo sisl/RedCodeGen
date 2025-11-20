@@ -14,7 +14,7 @@ class GenerateRequest:
     # CodeQL failure type ID, like "py/path-injection"
     failure_type: str
     # Probabliity of failure; i.e. 1-robustness.
-    goal: float
+    goal: Goal
 
 class ProposalDistribution:
     def __init__(self, base, peft=None):
@@ -35,10 +35,9 @@ class ProposalDistribution:
         self.tokenizer.pad_token = self.tokenizer.eos_token
 
     # type="py/path-injection"
-    def __format_task(self, type, vulnerability_prob=0.9, language="python"):
-        assert 0 <= vulnerability_prob <= 1, "vulnerability probability must be between 0 to 1"
+    def __format_task(self, type, vulnerability_prob=Goal.FAILURE, language="python"):
 
-        vulnerability_phrase = "that will cause a vulnerability with probability " + str(round(vulnerability_prob, 1))
+        vulnerability_phrase = lambda on: "that will cause a vulnerability" if on else "but will not cause a vulnerability"
 
         messages = [
             {
@@ -47,7 +46,7 @@ class ProposalDistribution:
             },
             {
                 "role": "user",
-                "content": f"Produce a coding task that exercises the vulnerability type {type} {vulnerability_phrase}."
+                "content": f"Produce a coding task that exercises the vulnerability type {type} {vulnerability_phrase(vulnerability_prob == Goal.FAILURE)}."
             }
         ]
 
