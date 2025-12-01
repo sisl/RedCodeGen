@@ -17,7 +17,7 @@ from redcodegen.generator import run
 from redcodegen.validator import evaluate
 
 MODEL = "Qwen/Qwen2.5-0.5B-Instruct"
-PEFT = "/juice2/scr2/houjun/RedCodeFit/output/test/model" # this is optional
+PEFT = "/juice2/scr2/houjun/RedCodeFit/output/test/model_pt" # this is optional
 
 N = 10
 VARIANCE_THRESHOLD = 0.015
@@ -25,11 +25,21 @@ VULNERABILITIES = ['py/url-redirection', 'py/command-line-injection', 'py/reflec
 
 results = []
 
+from redcodegen.proposal import ProposalDistribution, Goal, GenerateRequest
 distribution = ProposalDistribution(MODEL, PEFT)
 
-prompt_bad = distribution.generate(GenerateRequest("py/path-injection", 1.0))
-prompt_good = distribution.generate(GenerateRequest("py/path-injection", 0.1))
+prompt_bad = distribution.generate(GenerateRequest("py/reflective-xss", Goal.FAILURE))
+prompt_good = distribution.generate(GenerateRequest("py/reflective-xss", Goal.NOMINAL))
+
+prompt_bad
 prompt_good
+
+
+
+!git log
+
+prompt_bad
+print(prompt_good)
 
 import dspy
 dspy.configure(lm=dspy.LM("openai/gpt-4o-mini"), temperature=0.8)
