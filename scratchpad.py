@@ -17,7 +17,7 @@ from redcodegen.generator import run
 from redcodegen.validator import evaluate
 
 MODEL = "Qwen/Qwen2.5-0.5B-Instruct"
-PEFT = "/juice2/scr2/houjun/RedCodeFit/output/test/model_pt" # this is optional
+PEFT = "/juice2/scr2/houjun/RedCodeFit/output/e0_gpt4o_d1024_s1e2048_s2e1024_lr46_pt/model_pt" # this is optional
 
 N = 10
 VARIANCE_THRESHOLD = 0.015
@@ -25,11 +25,11 @@ VULNERABILITIES = ['py/url-redirection', 'py/command-line-injection', 'py/reflec
 
 results = []
 
-from redcodegen.proposal import ProposalDistribution, Goal, GenerateRequest
+from redcodegen.proposal import ProposalDistribution, GenerateRequest, Goal
 distribution = ProposalDistribution(MODEL, PEFT)
 
-prompt_bad = distribution.generate(GenerateRequest("py/reflective-xss", Goal.FAILURE))
-prompt_good = distribution.generate(GenerateRequest("py/reflective-xss", Goal.NOMINAL))
+prompt_bad = distribution.generate(GenerateRequest("py/url-redirection", Goal.FAILURE))
+prompt_good = distribution.generate(GenerateRequest("py/url-redirection", Goal.NOMINAL))
 
 prompt_bad
 prompt_good
@@ -46,11 +46,7 @@ dspy.configure(lm=dspy.LM("openai/gpt-4o-mini"), temperature=0.8)
 
 from redcodegen.uncertainty import quantify
 nominal_result, nominal_errors = quantify(prompt_good, threshold=1, min_rollouts=1, return_evaluations=True)
-nominal_errors
-nominal_result
-nominal_errors
-nominal_result
-failure_result, failure_errors = quantify(prompt_bad, threshold=1, min_rollouts=1, return_evaluations=True
+failure_result, failure_errors = quantify(prompt_bad, threshold=1, min_rollouts=1, return_evaluations=True)
 failure_errors
 failure_result
 

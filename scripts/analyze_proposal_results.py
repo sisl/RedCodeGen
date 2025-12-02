@@ -37,7 +37,7 @@ sns.set_palette(["#8C1515",    # Stanford Red
 OUTPUT_DIR = Path("./output/e0_gpt4o/")
 all_results = []
 
-for data_file in OUTPUT_DIR.glob("*.jsonl"):
+def process_df(data_file):
     try:
         with jsonlines.open(data_file) as reader:
             data = [obj for obj in reader]
@@ -66,7 +66,7 @@ for data_file in OUTPUT_DIR.glob("*.jsonl"):
         else:
             dataset_size, epoch_1, epoch_2 = None, None, None
 
-        all_results.append({
+        return {
             "filename": data_file.name,
             "dataset_size": int(dataset_size) if dataset_size else None,
             "epoch_1": int(epoch_1) if epoch_1 else None,
@@ -74,32 +74,18 @@ for data_file in OUTPUT_DIR.glob("*.jsonl"):
             "asr_overall": asr_overall,
             "asr_pass_at_n": asr_pass_at_n,
             "asr_overall_nom": asr_overall_nom,
-            "asr_pass_at_n_nom": asr_pass_at_n_nom
-        })
+            "asr_pass_at_n_nom": asr_pass_at_n_nom,
+            "n": len(df)
+        }
     except Exception as e:
         print(f"Error processing {data_file}: {e}")
+
+
+for data_file in OUTPUT_DIR.glob("*.jsonl"):
+    result = process_df(data_file)
+    if result:
+            all_results.append(result)
 
 results_df = pd.DataFrame(all_results)
 results_df.to_csv("./output/e0_gpt4o/metrics_summary.csv", index=False)
 print(f"Saved metrics for {len(all_results)} files to ./output/e0_gpt4o/metrics_summary.csv")
-
-# Plot metrics
-if len(results_df) > 0:
-    fig, ax = plt.subplots(figsize=FIGSIZE)
-
-    results_df_sorted = results_df.sort_values('dataset_size')
-
-    ax.plot(results_df_sorted['dataset_size'], results_df_sorted['asr_overall'], marker='o', label='ASR Overall (Failure)')
-    ax.plot(results_df_sorted['dataset_size'], results_df_sorted['asr_pass_at_n'], marker='s', label='ASR Pass@N (Failure)')
-    ax.plot(results_df_sorted['dataset_size'], results_df_sorted['asr_overall_nom'], marker='^', label='ASR Overall (Nominal)')
-    ax.plot(results_df_sorted['dataset_size'], results_df_sorted['asr_pass_at_n_nom'], marker='d', label='ASR Pass@N (Nominal)')
-
-    ax.set_xlabel('Dataset Size')
-    ax.set_ylabel('Attack Success Rate')
-    ax.set_title('ASR Metrics vs Dataset Size')
-    ax.legend()
-    ax.grid(True, alpha=0.3)
-
-    plt.tight_layout()
-    plt.savefig('./output/e0_gpt4o/metrics_plot.pdf')
-    print("Saved plot to ./output/e0_gpt4o/metrics_plot.pdf")

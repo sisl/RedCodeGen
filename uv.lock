@@ -1654,6 +1654,21 @@ wheels = [
 ]
 
 [[package]]
+name = "nltk"
+version = "3.9.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "click" },
+    { name = "joblib" },
+    { name = "regex" },
+    { name = "tqdm" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/f9/76/3a5e4312c19a028770f86fd7c058cf9f4ec4321c6cf7526bab998a5b683c/nltk-3.9.2.tar.gz", hash = "sha256:0f409e9b069ca4177c1903c3e843eef90c7e92992fa4931ae607da6de49e1419", size = 2887629, upload-time = "2025-10-01T07:19:23.764Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/60/90/81ac364ef94209c100e12579629dc92bf7a709a84af32f8c551b02c07e94/nltk-3.9.2-py3-none-any.whl", hash = "sha256:1e209d2b3009110635ed9709a67a1a3e33a10f799490fa71cf4bec218c11c88a", size = 1513404, upload-time = "2025-10-01T07:19:21.648Z" },
+]
+
+[[package]]
 name = "numpy"
 version = "2.3.4"
 source = { registry = "https://pypi.org/simple" }
@@ -2628,6 +2643,7 @@ dependencies = [
     { name = "cwe2" },
     { name = "dspy" },
     { name = "jsonlines" },
+    { name = "nltk" },
     { name = "pandas" },
     { name = "peft" },
     { name = "python-dotenv" },
@@ -2652,6 +2668,7 @@ requires-dist = [
     { name = "cwe2", specifier = ">=3.0.0" },
     { name = "dspy", specifier = ">=3.0.3" },
     { name = "jsonlines", specifier = ">=4.0.0" },
+    { name = "nltk", specifier = ">=3.9.2" },
     { name = "pandas", specifier = ">=2.3.3" },
     { name = "peft", specifier = ">=0.18.0" },
     { name = "python-dotenv", specifier = ">=1.1.1" },
