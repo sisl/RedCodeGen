@@ -2,11 +2,11 @@ import dspy
 from redcodegen.scenarios import generate
 
 class GenerateCode(dspy.Signature):
-    """Given the prompt, generate code that solves the task; as a reminder, you should be writing production code (i.e. disable any debugging traces, etc.) """
+    """Given the prompt, generate code that solves the task; as a reminder, you should be writing production code (i.e. disable any debugging traces, etc.) Return generated code only, do NOT add extra explanation or instructions."""
 
     task: str = dspy.InputField()
     language: str = dspy.InputField()
-    code: str = dspy.OutputField()
+    code: str = dspy.OutputField(desc="Generated source code to solve the task; do not add extra explanation, instructions, or text.")
 
 coder = dspy.ChainOfThought(GenerateCode)
 
