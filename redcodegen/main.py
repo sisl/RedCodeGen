@@ -8,6 +8,7 @@ import jsonlines
 import logging
 import dspy
 import os
+import hashlib
 from datetime import datetime
 from pathlib import Path
 from typing import List, Set, Dict, Any
@@ -280,14 +281,15 @@ def append_propose_record(record: Dict[str, Any], output_path: Path):
         writer.write(record)
 
 
-def load_processed_patch_evaluations(output_path: Path) -> Set[tuple[str, str]]:
+def load_processed_patch_evaluations(output_path: Path) -> Set[tuple[str, str, str, str, str, str]]:
     """Load patch evaluations that have already been processed.
 
     Args:
         output_path: Path to the patch evaluation output JSONL file
 
     Returns:
-        Set of (instance_id, model) tuples already present in output
+        Set of processed keys:
+        (instance_id, model, repo, base, resolved, patch_sha256)
     """
     processed = set()
 
@@ -297,8 +299,16 @@ def load_processed_patch_evaluations(output_path: Path) -> Set[tuple[str, str]]:
     try:
         with jsonlines.open(output_path) as reader:
             for record in reader:
-                if 'instance_id' in record and 'model' in record:
-                    processed.add((str(record['instance_id']), str(record['model'])))
+                required = {'instance_id', 'model', 'repo', 'base', 'resolved', 'patch_sha256'}
+                if required.issubset(record.keys()):
+                    processed.add((
+                        str(record['instance_id']),
+                        str(record['model']),
+                        str(record['repo']),
+                        str(record['base']),
+                        str(record['resolved']),
+                        str(record['patch_sha256']),
+                    ))
         logger.info(f"Found {len(processed)} already-processed patch evaluations in {output_path}")
     except Exception as e:
         logger.warning(f"Could not read existing output file: {e}")
@@ -308,6 +318,7 @@ def load_processed_patch_evaluations(output_path: Path) -> Set[tuple[str, str]]:
 
 def build_patch_evaluation_record(
     row: Dict[str, Any],
+    patch_sha256: str,
     evaluation: List[Dict[str, Any]] | None,
     error: str | None
 ) -> Dict[str, Any]:
@@ -318,6 +329,7 @@ def build_patch_evaluation_record(
         "repo": row["repo"],
         "base": row["base"],
         "resolved": row["resolved"],
+        "patch_sha256": patch_sha256,
         "timestamp": datetime.utcnow().isoformat() + 'Z',
         "evaluation": evaluation,
         "num_vulnerabilities": len(evaluation) if evaluation is not None else None,
@@ -672,8 +684,7 @@ def evaluate(input, output, workdir):
 
     valid_rows = []
     skipped_invalid = 0
-    skipped_duplicates = 0
-    seen_in_input = set()
+    skipped_completed = 0
     for idx, row in enumerate(rows, 1):
         missing = sorted(required_keys - set(row.keys()))
         if missing:
@@ -681,29 +692,35 @@ def evaluate(input, output, workdir):
             logger.error(f"Skipping row {idx}: missing required keys {missing}")
             continue
 
-        row_key = (str(row["instance_id"]), str(row["model"]))
+        patch_text = row["patch"] if isinstance(row["patch"], str) else str(row["patch"])
+        patch_sha256 = hashlib.sha256(patch_text.encode('utf-8')).hexdigest()
+        row_key = (
+            str(row["instance_id"]),
+            str(row["model"]),
+            str(row["repo"]),
+            str(row["base"]),
+            str(row["resolved"]),
+            patch_sha256
+        )
         if row_key in processed:
+            skipped_completed += 1
             continue
-        if row_key in seen_in_input:
-            skipped_duplicates += 1
-            continue
-        seen_in_input.add(row_key)
-        valid_rows.append(row)
+        valid_rows.append((row, patch_text, patch_sha256))
 
     if skipped_invalid > 0:
         logger.warning(f"Skipped {skipped_invalid} invalid rows")
-    if skipped_duplicates > 0:
-        logger.warning(f"Skipped {skipped_duplicates} duplicate rows in input")
+    if skipped_completed > 0:
+        logger.info(f"Skipped {skipped_completed} already completed rows from output")
 
     if not valid_rows:
         logger.info("All patch evaluations already completed!")
         return
 
-    logger.info(f"Processing {len(valid_rows)} rows (skipped {len(processed)} already completed)")
+    logger.info(f"Processing {len(valid_rows)} rows (skipped {skipped_completed} already completed)")
 
     success_count = 0
     failure_count = 0
-    for idx, row in enumerate(valid_rows, 1):
+    for idx, (row, patch_text, patch_sha256) in enumerate(valid_rows, 1):
         instance_id = row["instance_id"]
         model = row["model"]
         repo = row["repo"]
@@ -716,7 +733,7 @@ def evaluate(input, output, workdir):
             evaluation_result = patched_evaluate(
                 repo=repo,
                 commit=base,
-                patch=row["patch"],
+                patch=patch_text,
                 workdir=str(workdir_path)
             )
             error = None
@@ -730,6 +747,7 @@ def evaluate(input, output, workdir):
 
         record = build_patch_evaluation_record(
             row=row,
+            patch_sha256=patch_sha256,
             evaluation=evaluation_result,
             error=error
         )
