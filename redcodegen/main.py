@@ -280,6 +280,57 @@ def append_propose_record(record: Dict[str, Any], output_path: Path):
         writer.write(record)
 
 
+def load_processed_patch_evaluations(output_path: Path) -> Set[tuple[str, str]]:
+    """Load patch evaluations that have already been processed.
+
+    Args:
+        output_path: Path to the patch evaluation output JSONL file
+
+    Returns:
+        Set of (instance_id, model) tuples already present in output
+    """
+    processed = set()
+
+    if not output_path.exists():
+        return processed
+
+    try:
+        with jsonlines.open(output_path) as reader:
+            for record in reader:
+                if 'instance_id' in record and 'model' in record:
+                    processed.add((str(record['instance_id']), str(record['model'])))
+        logger.info(f"Found {len(processed)} already-processed patch evaluations in {output_path}")
+    except Exception as e:
+        logger.warning(f"Could not read existing output file: {e}")
+
+    return processed
+
+
+def build_patch_evaluation_record(
+    row: Dict[str, Any],
+    evaluation: List[Dict[str, Any]] | None,
+    error: str | None
+) -> Dict[str, Any]:
+    """Build a patch evaluation record for JSONL output."""
+    return {
+        "instance_id": row["instance_id"],
+        "model": row["model"],
+        "repo": row["repo"],
+        "base": row["base"],
+        "resolved": row["resolved"],
+        "timestamp": datetime.utcnow().isoformat() + 'Z',
+        "evaluation": evaluation,
+        "num_vulnerabilities": len(evaluation) if evaluation is not None else None,
+        "error": error
+    }
+
+
+def append_patch_evaluation_record(record: Dict[str, Any], output_path: Path):
+    """Append a patch evaluation record to the JSONL file."""
+    with jsonlines.open(output_path, mode='a') as writer:
+        writer.write(record)
+
+
 def process_scenario_worker(
     task_queue,
     write_queue,
@@ -564,6 +615,130 @@ def generate(cwes, use_top_25, min_samples, output, model, api_key, api_base, te
             continue
 
     logger.info(f"Completed! Results saved to {output_path}")
+
+
+@main.command()
+@click.option(
+    '--input', '-i',
+    required=True,
+    type=click.Path(exists=True),
+    help='Input JSONL file with patch records to evaluate'
+)
+@click.option(
+    '--output', '-o',
+    default='patch_evaluations.jsonl',
+    type=click.Path(),
+    help='Output JSONL file for patch evaluation results (default: patch_evaluations.jsonl)'
+)
+@click.option(
+    '--workdir',
+    default='/tmp',
+    type=click.Path(),
+    help='Working directory for temporary CodeQL files (default: /tmp)'
+)
+def evaluate(input, output, workdir):
+    """Evaluate patched repositories with CodeQL static analysis.
+
+    Input JSONL rows must contain:
+        instance_id, model, repo, base, patch, resolved
+
+    Examples:
+        redcodegen evaluate -i swebench_patches.jsonl
+        redcodegen evaluate -i swebench_patches.jsonl -o swebench_eval.jsonl
+        redcodegen evaluate -i swebench_patches.jsonl --workdir /tmp
+    """
+    from redcodegen.patch import patched_evaluate
+
+    input_path = Path(input)
+    output_path = Path(output)
+    workdir_path = Path(workdir)
+
+    logger.info(f"Loading patch records from {input_path}")
+    try:
+        with jsonlines.open(input_path) as reader:
+            rows = [row for row in reader]
+    except Exception as e:
+        logger.error(f"Failed to read input file: {e}")
+        raise click.Abort()
+
+    if not rows:
+        logger.warning("No records found in input file")
+        return
+
+    logger.info(f"Loaded {len(rows)} records from input")
+
+    required_keys = {"instance_id", "model", "repo", "base", "patch", "resolved"}
+    processed = load_processed_patch_evaluations(output_path)
+
+    valid_rows = []
+    skipped_invalid = 0
+    skipped_duplicates = 0
+    seen_in_input = set()
+    for idx, row in enumerate(rows, 1):
+        missing = sorted(required_keys - set(row.keys()))
+        if missing:
+            skipped_invalid += 1
+            logger.error(f"Skipping row {idx}: missing required keys {missing}")
+            continue
+
+        row_key = (str(row["instance_id"]), str(row["model"]))
+        if row_key in processed:
+            continue
+        if row_key in seen_in_input:
+            skipped_duplicates += 1
+            continue
+        seen_in_input.add(row_key)
+        valid_rows.append(row)
+
+    if skipped_invalid > 0:
+        logger.warning(f"Skipped {skipped_invalid} invalid rows")
+    if skipped_duplicates > 0:
+        logger.warning(f"Skipped {skipped_duplicates} duplicate rows in input")
+
+    if not valid_rows:
+        logger.info("All patch evaluations already completed!")
+        return
+
+    logger.info(f"Processing {len(valid_rows)} rows (skipped {len(processed)} already completed)")
+
+    success_count = 0
+    failure_count = 0
+    for idx, row in enumerate(valid_rows, 1):
+        instance_id = row["instance_id"]
+        model = row["model"]
+        repo = row["repo"]
+        base = row["base"]
+
+        logger.info(f"[{idx}/{len(valid_rows)}] Evaluating {instance_id} ({model})")
+        logger.debug(f"  Repo: {repo} @ {base}")
+
+        try:
+            evaluation_result = patched_evaluate(
+                repo=repo,
+                commit=base,
+                patch=row["patch"],
+                workdir=str(workdir_path)
+            )
+            error = None
+            success_count += 1
+            logger.info(f"  ✓ Found {len(evaluation_result)} vulnerabilities")
+        except Exception as e:
+            evaluation_result = None
+            error = str(e)
+            failure_count += 1
+            logger.error(f"  ✗ Failed to evaluate {instance_id} ({model}): {e}")
+
+        record = build_patch_evaluation_record(
+            row=row,
+            evaluation=evaluation_result,
+            error=error
+        )
+        append_patch_evaluation_record(record, output_path)
+
+    logger.info(
+        f"Completed! Processed {len(valid_rows)} rows "
+        f"(successes: {success_count}, failures: {failure_count}) saved to {output_path}"
+    )
 
 
 @main.command()

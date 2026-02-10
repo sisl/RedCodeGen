@@ -16,7 +16,7 @@ import shutil
 import json
 import logging
 from pathlib import Path
-from typing import List, Dict
+from typing import List, Dict, Any
 from functools import cache
 
 logger = logging.getLogger("redcodegen")
@@ -39,7 +39,7 @@ def _find_codeql() -> str:
     return codeql_path
 
 
-def _parse_sarif(sarif_path: Path) -> List[Dict[str, any]]:
+def _parse_sarif(sarif_path: Path) -> List[Dict[str, Any]]:
     """Parse SARIF output file and extract vulnerability information.
 
     Args:
@@ -123,8 +123,80 @@ def _cleanup(*paths: Path):
             except Exception as e:
                 logger.warning(f"Failed to cleanup {path}: {e}")
 
+
+def _run_codeql_analysis(source_root: Path, workdir: Path) -> List[Dict[str, Any]]:
+    """Run CodeQL analysis for a source root and return parsed SARIF findings."""
+    codeql_bin = _find_codeql()
+    workdir.mkdir(parents=True, exist_ok=True)
+
+    db_dir = Path(tempfile.mkdtemp(prefix="codeql_db_", dir=workdir))
+    sarif_file = tempfile.NamedTemporaryFile(
+        mode='w',
+        suffix='.sarif',
+        prefix='codeql_results_',
+        dir=workdir,
+        delete=False
+    )
+    sarif_path = Path(sarif_file.name)
+    sarif_file.close()
+
+    try:
+        logger.debug(f"Creating CodeQL database in {db_dir} from {source_root}")
+        subprocess.run(
+            [
+                codeql_bin,
+                "database",
+                "create",
+                str(db_dir),
+                "--language=python",
+                f"--source-root={source_root}",
+                "--overwrite"
+            ],
+            check=True,
+            capture_output=True,
+            text=True
+        )
+
+        logger.debug("Analyzing CodeQL database")
+        subprocess.run(
+            [
+                codeql_bin,
+                "database",
+                "analyze",
+                str(db_dir),
+                "codeql/python-queries",
+                "--format=sarif-latest",
+                f"--output={sarif_path}",
+                "--download"
+            ],
+            check=True,
+            capture_output=True,
+            text=True
+        )
+
+        vulnerabilities = _parse_sarif(sarif_path)
+        logger.debug(f"Found {len(vulnerabilities)} vulnerabilities")
+        return vulnerabilities
+
+    finally:
+        _cleanup(db_dir, sarif_path)
+
+
+def _source_tree_mtime_ns(source_root: Path) -> int:
+    """Return a coarse fingerprint of a codebase based on latest file mtime."""
+    latest_mtime = source_root.stat().st_mtime_ns
+    for p in source_root.rglob("*"):
+        try:
+            if p.is_file():
+                latest_mtime = max(latest_mtime, p.stat().st_mtime_ns)
+        except FileNotFoundError:
+            # Ignore races if files are moved/deleted during traversal.
+            continue
+    return latest_mtime
+
+
 @cache
-def evaluate(program: str, workdir: str = "/tmp") -> List[Dict[str, any]]:
+def evaluate(program: str, workdir: str = "/tmp") -> List[Dict[str, Any]]:
     """Evaluates program via codeql in a temporary workdir
 
     Args:
@@ -143,72 +215,54 @@ def evaluate(program: str, workdir: str = "/tmp") -> List[Dict[str, any]]:
         subprocess.CalledProcessError: If CodeQL commands fail
     """
     workdir = Path(workdir)
-
-    # Find CodeQL binary (raises if not found)
-    codeql_bin = _find_codeql()
-
-    # Create temporary directories
+    workdir.mkdir(parents=True, exist_ok=True)
     src_dir = Path(tempfile.mkdtemp(prefix="codeql_src_", dir=workdir))
-    db_dir = Path(tempfile.mkdtemp(prefix="codeql_db_", dir=workdir))
-    sarif_file = tempfile.NamedTemporaryFile(
-        mode='w',
-        suffix='.sarif',
-        prefix='codeql_results_',
-        dir=workdir,
-        delete=False
-    )
-    sarif_path = Path(sarif_file.name)
-    sarif_file.close()
 
     try:
         # Write program to source directory
         program_path = src_dir / "program.py"
         program_path.write_text(program, encoding='utf-8')
 
-        # Create CodeQL database
-        logger.debug(f"Creating CodeQL database in {db_dir}")
-        subprocess.run(
-            [
-                codeql_bin,
-                "database",
-                "create",
-                str(db_dir),
-                "--language=python",
-                f"--source-root={src_dir}",
-                "--overwrite"
-            ],
-            check=True,
-            capture_output=True,
-            text=True
-        )
-
-        # Analyze database
-        logger.debug(f"Analyzing CodeQL database")
-        subprocess.run(
-            [
-                codeql_bin,
-                "database",
-                "analyze",
-                str(db_dir),
-                "codeql/python-queries",
-                "--format=sarif-latest",
-                f"--output={sarif_path}",
-                "--download"
-            ],
-            check=True,
-            capture_output=True,
-            text=True
-        )
-
-        # Parse SARIF results
-        vulnerabilities = _parse_sarif(sarif_path)
-        logger.debug(f"Found {len(vulnerabilities)} vulnerabilities")
-
-        return vulnerabilities
+        return _run_codeql_analysis(src_dir, workdir)
 
     finally:
-        # Cleanup temporary files
-        _cleanup(src_dir, db_dir, sarif_path)
+        # Cleanup temporary source folder
+        _cleanup(src_dir)
 
 
+@cache
+def _evaluate_codebase_cached(
+    source_root: str,
+    workdir: str,
+    source_mtime_ns: int
+) -> List[Dict[str, Any]]:
+    # source_mtime_ns is included to invalidate cache when files change.
+    del source_mtime_ns
+    return _run_codeql_analysis(Path(source_root), Path(workdir))
 
+
+def evaluate_codebase(path: str | Path, workdir: str | Path) -> List[Dict[str, Any]]:
+    """Evaluate a whole codebase (directory) via CodeQL.
+
+    Args:
+        path: Path to the source tree root.
+        workdir: Working directory used for temporary CodeQL DB/SARIF files.
+
+    Returns:
+        List[Dict]: Parsed vulnerabilities from SARIF.
+
+    Raises:
+        FileNotFoundError: If path does not exist or CodeQL is not in PATH.
+        NotADirectoryError: If path is not a directory.
+        subprocess.CalledProcessError: If CodeQL commands fail.
+    """
+    source_root = Path(path).expanduser().resolve()
+    workdir_path = Path(workdir).expanduser().resolve()
+
+    if not source_root.exists():
+        raise FileNotFoundError(f"Codebase path does not exist: {source_root}")
+    if not source_root.is_dir():
+        raise NotADirectoryError(f"Codebase path must be a directory: {source_root}")
+
+    source_mtime_ns = _source_tree_mtime_ns(source_root)
+    return _evaluate_codebase_cached(str(source_root), str(workdir_path), source_mtime_ns)

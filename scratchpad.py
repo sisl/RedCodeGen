@@ -16,6 +16,24 @@ from redcodegen.uncertainty import mcmc, FailureBeta
 from redcodegen.generator import run
 from redcodegen.validator import evaluate
 
+from datasets import load_dataset
+
+from redcodegen.patch import patched_evaluate
+
+res = patched_evaluate(ds[0]["repo"], ds[0]["base_commit"], ds[0]["patch"])
+res
+ds[0]
+
+
+
+ds = load_dataset("SWE-bench/SWE-bench_Verified")["test"]
+ds[0]
+# !uv add datasets
+
+
+
+
+
 MODEL = "Qwen/Qwen2.5-0.5B-Instruct"
 PEFT = "/juice2/scr2/houjun/RedCodeFit/output/e0_gpt4o_d1024_s1e2048_s2e1024_lr46_pt/model_pt" # this is optional
 
