@@ -90,24 +90,35 @@ def apply_patch(repo_path, patch_path):
     _run_quiet(["git", "apply", patch_path], cwd=repo_path)
 
 
-def patched_evaluate(repo, commit, patch, workdir=None):
+def patched_evaluate(repo, commit, patch, workdir=None, skip_patch=False):
     path = get_cached_clone_path(repo)
     eval_workdir = workdir or tempfile.gettempdir()
+    commit_str = str(commit)
+    patch_text = "" if patch is None else (patch if isinstance(patch, str) else str(patch))
+    patchfile_path = None
     try:
         _reset_repo(path)
-        _checkout_commit(path, commit)
-        patchfile = tempfile.NamedTemporaryFile(delete=False)
-        try:
-            patchfile.write(patch.encode())
-            patchfile.flush()
-            patchfile.close()
-        except Exception as e:
-            patchfile.close()
-            os.unlink(patchfile.name)
-            raise e
-        apply_patch(path, patchfile.name)
+        _checkout_commit(path, commit_str)
+
+        if not skip_patch:
+            patchfile = tempfile.NamedTemporaryFile(delete=False)
+            patchfile_path = patchfile.name
+            try:
+                patchfile.write(patch_text.encode())
+                patchfile.flush()
+                patchfile.close()
+            except Exception as e:
+                patchfile.close()
+                if patchfile_path and os.path.exists(patchfile_path):
+                    os.unlink(patchfile_path)
+                raise e
+
+            apply_patch(path, patchfile_path)
+
         res = evaluate_codebase(path, eval_workdir)
         return res
     finally:
+        if patchfile_path and os.path.exists(patchfile_path):
+            os.unlink(patchfile_path)
         if os.path.exists(path):
             _reset_repo(path)

@@ -281,7 +281,7 @@ def append_propose_record(record: Dict[str, Any], output_path: Path):
         writer.write(record)
 
 
-def load_processed_patch_evaluations(output_path: Path) -> Set[tuple[str, str, str, str, str, str]]:
+def load_processed_patch_evaluations(output_path: Path) -> Set[tuple[str, str, str, str, str, str, bool]]:
     """Load patch evaluations that have already been processed.
 
     Args:
@@ -289,7 +289,7 @@ def load_processed_patch_evaluations(output_path: Path) -> Set[tuple[str, str, s
 
     Returns:
         Set of processed keys:
-        (instance_id, model, repo, base, resolved, patch_sha256)
+        (instance_id, model, repo, base, resolved, patch_sha256, skip_patch)
     """
     processed = set()
 
@@ -308,6 +308,7 @@ def load_processed_patch_evaluations(output_path: Path) -> Set[tuple[str, str, s
                         str(record['base']),
                         str(record['resolved']),
                         str(record['patch_sha256']),
+                        bool(record.get('skip_patch', False)),
                     ))
         logger.info(f"Found {len(processed)} already-processed patch evaluations in {output_path}")
     except Exception as e:
@@ -319,6 +320,7 @@ def load_processed_patch_evaluations(output_path: Path) -> Set[tuple[str, str, s
 def build_patch_evaluation_record(
     row: Dict[str, Any],
     patch_sha256: str,
+    skip_patch: bool,
     evaluation: List[Dict[str, Any]] | None,
     error: str | None
 ) -> Dict[str, Any]:
@@ -330,6 +332,7 @@ def build_patch_evaluation_record(
         "base": row["base"],
         "resolved": row["resolved"],
         "patch_sha256": patch_sha256,
+        "skip_patch": skip_patch,
         "timestamp": datetime.utcnow().isoformat() + 'Z',
         "evaluation": evaluation,
         "num_vulnerabilities": len(evaluation) if evaluation is not None else None,
@@ -648,7 +651,12 @@ def generate(cwes, use_top_25, min_samples, output, model, api_key, api_base, te
     type=click.Path(),
     help='Working directory for temporary CodeQL files (default: /tmp)'
 )
-def evaluate(input, output, workdir):
+@click.option(
+    '--skip-patch',
+    is_flag=True,
+    help='Skip applying patch; evaluate repository at base commit only'
+)
+def evaluate(input, output, workdir, skip_patch):
     """Evaluate patched repositories with CodeQL static analysis.
 
     Input JSONL rows must contain:
@@ -658,6 +666,7 @@ def evaluate(input, output, workdir):
         redcodegen evaluate -i swebench_patches.jsonl
         redcodegen evaluate -i swebench_patches.jsonl -o swebench_eval.jsonl
         redcodegen evaluate -i swebench_patches.jsonl --workdir /tmp
+        redcodegen evaluate -i swebench_patches.jsonl --skip-patch
     """
     from redcodegen.patch import patched_evaluate
 
@@ -678,6 +687,8 @@ def evaluate(input, output, workdir):
         return
 
     logger.info(f"Loaded {len(rows)} records from input")
+    if skip_patch:
+        logger.info("Patch application is disabled (--skip-patch); evaluating base commits only")
 
     required_keys = {"instance_id", "model", "repo", "base", "patch", "resolved"}
     processed = load_processed_patch_evaluations(output_path)
@@ -700,7 +711,8 @@ def evaluate(input, output, workdir):
             str(row["repo"]),
             str(row["base"]),
             str(row["resolved"]),
-            patch_sha256
+            patch_sha256,
+            bool(skip_patch)
         )
         if row_key in processed:
             skipped_completed += 1
@@ -720,6 +732,7 @@ def evaluate(input, output, workdir):
 
     success_count = 0
     failure_count = 0
+    evaluation_cache = {}
     for idx, (row, patch_text, patch_sha256) in enumerate(valid_rows, 1):
         instance_id = row["instance_id"]
         model = row["model"]
@@ -729,25 +742,42 @@ def evaluate(input, output, workdir):
         logger.info(f"[{idx}/{len(valid_rows)}] Evaluating {instance_id} ({model})")
         logger.debug(f"  Repo: {repo} @ {base}")
 
-        try:
-            evaluation_result = patched_evaluate(
-                repo=repo,
-                commit=base,
-                patch=patch_text,
-                workdir=str(workdir_path)
-            )
-            error = None
+        cache_key = (
+            str(repo),
+            str(base),
+            "__SKIP_PATCH__" if skip_patch else patch_sha256,
+            bool(skip_patch),
+        )
+
+        if cache_key in evaluation_cache:
+            evaluation_result, error = evaluation_cache[cache_key]
+            logger.debug("  Reusing cached evaluation result")
+        else:
+            try:
+                evaluation_result = patched_evaluate(
+                    repo=repo,
+                    commit=base,
+                    patch=patch_text,
+                    workdir=str(workdir_path),
+                    skip_patch=skip_patch
+                )
+                error = None
+            except Exception as e:
+                evaluation_result = None
+                error = str(e)
+            evaluation_cache[cache_key] = (evaluation_result, error)
+
+        if error is None:
             success_count += 1
             logger.info(f"  ✓ Found {len(evaluation_result)} vulnerabilities")
-        except Exception as e:
-            evaluation_result = None
-            error = str(e)
+        else:
             failure_count += 1
-            logger.error(f"  ✗ Failed to evaluate {instance_id} ({model}): {e}")
+            logger.error(f"  ✗ Failed to evaluate {instance_id} ({model}): {error}")
 
         record = build_patch_evaluation_record(
             row=row,
             patch_sha256=patch_sha256,
+            skip_patch=skip_patch,
             evaluation=evaluation_result,
             error=error
         )
