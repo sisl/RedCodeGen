@@ -10,7 +10,7 @@ import shutil
 from functools import cache
 from typing import Sequence
 
-from redcodegen.validator import evaluate_codebase
+from redcodegen.validator import evaluate_diff
 
 logger = logging.getLogger("redcodegen")
 
@@ -115,7 +115,7 @@ def patched_evaluate(repo, commit, patch, workdir=None, skip_patch=False):
 
             apply_patch(path, patchfile_path)
 
-        res = evaluate_codebase(path, eval_workdir)
+        res = evaluate_diff(path, eval_workdir)
         return res
     finally:
         if patchfile_path and os.path.exists(patchfile_path):

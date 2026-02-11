@@ -266,3 +266,63 @@ def evaluate_codebase(path: str | Path, workdir: str | Path) -> List[Dict[str, A
 
     source_mtime_ns = _source_tree_mtime_ns(source_root)
     return _evaluate_codebase_cached(str(source_root), str(workdir_path), source_mtime_ns)
+
+
+def evaluate_diff(path: str | Path, workdir: str | Path) -> List[Dict[str, Any]]:
+    """Evaluate files changed in git diff by analyzing each changed file.
+
+    This inspects `git diff --name-only` in `workdir`, then reads each changed
+    file from `path` (falling back to `workdir` if needed), calls `evaluate(...)`
+    on its full contents, and concatenates all vulnerability findings.
+
+    Args:
+        path: Root directory to resolve changed file paths from.
+        workdir: Git working tree used to compute `git diff`.
+
+    Returns:
+        List[Dict]: Concatenated vulnerability findings across all changed files.
+
+    Raises:
+        FileNotFoundError: If `path` or `workdir` does not exist.
+        NotADirectoryError: If `path` or `workdir` is not a directory.
+        subprocess.CalledProcessError: If git diff invocation fails.
+    """
+    source_root = Path(path).expanduser().resolve()
+    workdir_path = Path(workdir).expanduser().resolve()
+
+    if not source_root.exists():
+        raise FileNotFoundError(f"Path does not exist: {source_root}")
+    if not source_root.is_dir():
+        raise NotADirectoryError(f"Path must be a directory: {source_root}")
+    if not workdir_path.exists():
+        raise FileNotFoundError(f"Workdir does not exist: {workdir_path}")
+    if not workdir_path.is_dir():
+        raise NotADirectoryError(f"Workdir must be a directory: {workdir_path}")
+
+    diff_proc = subprocess.run(
+        ["git", "-C", str(workdir_path), "diff", "--name-only"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    changed_files = [line.strip() for line in diff_proc.stdout.splitlines() if line.strip()]
+
+    findings: List[Dict[str, Any]] = []
+    for rel_file in changed_files:
+        rel_path = Path(rel_file)
+        candidate = source_root / rel_path
+        if not candidate.exists():
+            candidate = workdir_path / rel_path
+        if not candidate.exists() or not candidate.is_file():
+            logger.debug(f"Skipping changed path that is not a readable file: {rel_file}")
+            continue
+
+        try:
+            program = candidate.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            logger.debug(f"Skipping non-text changed file: {candidate}")
+            continue
+
+        findings.extend(evaluate(program, str(workdir_path)))
+
+    return findings
