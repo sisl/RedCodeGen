@@ -300,7 +300,7 @@ def evaluate_diff(path: str | Path, workdir: str | Path) -> List[Dict[str, Any]]
         raise NotADirectoryError(f"Workdir must be a directory: {workdir_path}")
 
     diff_proc = subprocess.run(
-        ["git", "-C", str(workdir_path), "diff", "--name-only"],
+        ["git", "-C", str(source_root), "diff", "--name-only"],
         check=True,
         capture_output=True,
         text=True,
@@ -311,8 +311,6 @@ def evaluate_diff(path: str | Path, workdir: str | Path) -> List[Dict[str, Any]]
     for rel_file in changed_files:
         rel_path = Path(rel_file)
         candidate = source_root / rel_path
-        if not candidate.exists():
-            candidate = workdir_path / rel_path
         if not candidate.exists() or not candidate.is_file():
             logger.debug(f"Skipping changed path that is not a readable file: {rel_file}")
             continue
