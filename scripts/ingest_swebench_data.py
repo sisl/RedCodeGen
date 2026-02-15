@@ -3,8 +3,8 @@ from glob import glob
 from pathlib import Path
 from datasets import load_dataset
 
-DATA_ROOT = "/Users/houjun/Downloads/compressed"
-OUT_FILE = "/Users/houjun/Downloads/compressed.jsonl"
+DATA_ROOT = "/Users/houjun/Downloads/verified_multi_scaffolds"
+OUT_FILE = "/Users/houjun/Downloads/verified_multi_scaffolds.jsonl"
 
 ds = load_dataset("SWE-bench/SWE-bench_Verified")["test"]
 

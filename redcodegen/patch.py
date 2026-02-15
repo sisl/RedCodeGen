@@ -122,3 +122,61 @@ def patched_evaluate(repo, commit, patch, workdir=None, skip_patch=False):
             os.unlink(patchfile_path)
         if os.path.exists(path):
             _reset_repo(path)
+
+
+def patched_changed_files(repo, commit, patch) -> list[tuple[str, str]]:
+    """Apply a patch and return changed file contents.
+
+    Returns:
+        List of (relative_path, file_contents) tuples for changed text files.
+    """
+    path = get_cached_clone_path(repo)
+    commit_str = str(commit)
+    patch_text = "" if patch is None else (patch if isinstance(patch, str) else str(patch))
+    patchfile_path = None
+    try:
+        _reset_repo(path)
+        _checkout_commit(path, commit_str)
+
+        patchfile = tempfile.NamedTemporaryFile(delete=False)
+        patchfile_path = patchfile.name
+        try:
+            patchfile.write(patch_text.encode())
+            patchfile.flush()
+            patchfile.close()
+        except Exception as e:
+            patchfile.close()
+            if patchfile_path and os.path.exists(patchfile_path):
+                os.unlink(patchfile_path)
+            raise e
+
+        apply_patch(path, patchfile_path)
+
+        diff_proc = subprocess.run(
+            ["git", "-C", path, "diff", "--name-only"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        changed_files = [line.strip() for line in diff_proc.stdout.splitlines() if line.strip()]
+
+        results: list[tuple[str, str]] = []
+        for rel_file in changed_files:
+            rel_path = rel_file
+            abs_path = os.path.join(path, rel_file)
+            if not os.path.exists(abs_path) or not os.path.isfile(abs_path):
+                continue
+            try:
+                with open(abs_path, "r", encoding="utf-8") as f:
+                    content = f.read()
+            except UnicodeDecodeError:
+                logger.debug("Skipping non-text changed file: %s", rel_file)
+                continue
+            results.append((rel_path, content))
+
+        return results
+    finally:
+        if patchfile_path and os.path.exists(patchfile_path):
+            os.unlink(patchfile_path)
+        if os.path.exists(path):
+            _reset_repo(path)

@@ -11,6 +11,13 @@ class ExtractScenarios(dspy.Signature):
     description: str = dspy.InputField()
     scenarios: list[str] = dspy.OutputField(desc="scenarios that exercises this weakness; follow examples you are given")
 
+class ExtractScenariosFromExample(dspy.Signature):
+    """given an example file, provide a description of a minimal, self-contained program that has the same behavior as the example file"""
+
+    example_file: str = dspy.InputField()
+    scenarios: str = dspy.OutputField(desc="a coding task prompt that can be used to generate a script has the same function")
+extract_scenarios_from_example = dspy.Predict(ExtractScenariosFromExample)
+
 def get_extract_scenarios():
     """since this is an LM call, we want to call this  only when we actually need the generator"""
     examples = seed_scenarios(20)
@@ -67,3 +74,36 @@ def generate(cwe_id, min_scenarios=3):
         "description": entry.extended_description,
         "scenarios": results
     }
+
+def regenerate(path=None, str=None, n=3):
+    """Given a path or string to an example file, obtain a coding task"""
+
+    if path is None and str is None:
+        raise ValueError("Either path or str must be provided")
+
+    if str is not None:
+        example_file = str
+    else:
+        with open(path, 'r') as f:
+            example_file = f.read()
+
+    coding_task = [
+        extract_scenarios_from_example(example_file=example_file, config={"rollout_id": i}).scenarios
+        for i in range(n)
+    ]
+    coding_task = [
+        strip_vulnerability(scenario=i).coding_task
+        for i in coding_task
+    ]
+    sugestions = [
+        suggest_libraries(task=i, suggested_libraries=CODEQL_LIBRARIES)
+        for i in coding_task
+    ]
+
+    results = [
+        i.rephrased_task if ((i.rephrased_task is not None) and (i.rephrased_task.lower().strip() != "none")) else j
+        for i,j in zip(sugestions, coding_task)
+    ]
+
+    return results
+    
