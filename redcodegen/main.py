@@ -708,9 +708,14 @@ def generate(cwes, use_top_25, min_samples, output, model, api_key, api_base, te
     # Initialize CWE database
     db = Database()
 
+    # Track total scenarios and vulnerabilities for logging
+    total_scenarios = 0
+    total_vulnerabilities = 0
+
     # Process each CWE
     for idx, cwe_id in enumerate(cwes_to_process, 1):
         logger.info(f"[{idx}/{len(cwes_to_process)}] Processing CWE-{cwe_id}...")
+        logger.info(f"  CWE-{cwe_id}: {db.get(cwe_id).name}")
 
         try:
             # Get CWE metadata
@@ -722,6 +727,7 @@ def generate(cwes, use_top_25, min_samples, output, model, api_key, api_base, te
             logger.info(f"  Generating {min_samples} code samples...")
             codes = run_cwe(cwe_id, min_scenarios=min_samples)
             logger.info(f"  Generated {len(codes)} code samples")
+            total_scenarios += len(codes)
 
             # Get scenarios (need to call generate again to get scenarios)
             from redcodegen.scenarios import generate
@@ -738,6 +744,7 @@ def generate(cwes, use_top_25, min_samples, output, model, api_key, api_base, te
                     evaluation = evaluate(code)
                     evaluations.append(evaluation)
                     errors.append(None)
+                    total_vulnerabilities += len(evaluation)
                     logger.info(f"    Found {len(evaluation)} vulnerabilities")
                 except Exception as e:
                     logger.warning(f"    Evaluation failed: {e}")
@@ -757,7 +764,7 @@ def generate(cwes, use_top_25, min_samples, output, model, api_key, api_base, te
             )
 
             append_to_jsonl(record, output_path)
-            logger.info(f"✓ Completed CWE-{cwe_id}")
+            logger.info(f"✓ Completed CWE-{cwe_id}. Current vulnerability rate: {total_vulnerabilities}/{total_scenarios} ({(total_vulnerabilities/total_scenarios)*100:.2f}%)")
 
         except Exception as e:
             logger.error(f"✗ Failed to process CWE-{cwe_id}: {e}")
