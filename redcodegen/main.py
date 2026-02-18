@@ -711,6 +711,7 @@ def generate(cwes, use_top_25, min_samples, output, model, api_key, api_base, te
     # Track total scenarios and vulnerabilities for logging
     total_scenarios = 0
     total_vulnerabilities = 0
+    total_scenarios_with_vulnerabilities = 0
     cwe_vulnerability_counts = {}
 
     # Process each CWE
@@ -720,6 +721,7 @@ def generate(cwes, use_top_25, min_samples, output, model, api_key, api_base, te
 
         # Track vulnerabilities found for this CWE
         cwe_vulnerabilities = 0
+        cwe_scenarios_with_vulnerabilities = 0
 
         try:
             # Get CWE metadata
@@ -750,6 +752,9 @@ def generate(cwes, use_top_25, min_samples, output, model, api_key, api_base, te
                     errors.append(None)
                     cwe_vulnerabilities += len(evaluation)
                     total_vulnerabilities += len(evaluation)
+                    if len(evaluation) > 0:
+                        cwe_scenarios_with_vulnerabilities += 1
+                        total_scenarios_with_vulnerabilities += 1
                     logger.info(f"    Found {len(evaluation)} vulnerabilities")
                 except Exception as e:
                     logger.warning(f"    Evaluation failed: {e}")
@@ -769,11 +774,12 @@ def generate(cwes, use_top_25, min_samples, output, model, api_key, api_base, te
             )
             cwe_vulnerability_counts[cwe_id] = {
                 'vulnerabilities': cwe_vulnerabilities,
+                'scenarios_with_vulnerabilities': cwe_scenarios_with_vulnerabilities,
                 'scenarios': len(codes)
             }
 
             append_to_jsonl(record, output_path)
-            logger.info(f"✓ Completed CWE-{cwe_id}. Current vulnerability rate: {total_vulnerabilities}/{total_scenarios} ({(total_vulnerabilities/total_scenarios)*100:.2f}%)")
+            logger.info(f"✓ Completed CWE-{cwe_id}. Current vulnerability rate: {total_scenarios_with_vulnerabilities}/{total_scenarios} ({(total_scenarios_with_vulnerabilities/total_scenarios)*100:.2f}%), vulnerabilities found so far: {total_vulnerabilities}")
 
         except Exception as e:
             logger.error(f"✗ Failed to process CWE-{cwe_id}: {e}")
@@ -782,7 +788,7 @@ def generate(cwes, use_top_25, min_samples, output, model, api_key, api_base, te
     logger.info(f"Completed! Results saved to {output_path}")
     logger.info("Vulnerability counts per CWE:")
     for cwe_id, count in cwe_vulnerability_counts.items():
-        logger.info(f"  CWE-{cwe_id}: {count['vulnerabilities']} vulnerabilities in {count['scenarios']} scenarios ({(count['vulnerabilities']/count['scenarios'])*100:.2f}%)")
+        logger.info(f"  CWE-{cwe_id}: {count['scenarios_with_vulnerabilities']} scenarios with vulnerabilities in {count['scenarios']} scenarios ({(count['scenarios_with_vulnerabilities']/count['scenarios'])*100:.2f}%), total vulnerabilities: {count['vulnerabilities']}")
 
 
 @main.command(name="regenerate")
