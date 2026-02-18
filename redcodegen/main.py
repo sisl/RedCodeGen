@@ -711,11 +711,15 @@ def generate(cwes, use_top_25, min_samples, output, model, api_key, api_base, te
     # Track total scenarios and vulnerabilities for logging
     total_scenarios = 0
     total_vulnerabilities = 0
+    cwe_vulnerability_counts = {}
 
     # Process each CWE
     for idx, cwe_id in enumerate(cwes_to_process, 1):
         logger.info(f"[{idx}/{len(cwes_to_process)}] Processing CWE-{cwe_id}...")
         logger.info(f"  CWE-{cwe_id}: {db.get(cwe_id).name}")
+
+        # Track vulnerabilities found for this CWE
+        cwe_vulnerabilities = 0
 
         try:
             # Get CWE metadata
@@ -744,6 +748,7 @@ def generate(cwes, use_top_25, min_samples, output, model, api_key, api_base, te
                     evaluation = evaluate(code)
                     evaluations.append(evaluation)
                     errors.append(None)
+                    cwe_vulnerabilities += len(evaluation)
                     total_vulnerabilities += len(evaluation)
                     logger.info(f"    Found {len(evaluation)} vulnerabilities")
                 except Exception as e:
@@ -762,6 +767,10 @@ def generate(cwes, use_top_25, min_samples, output, model, api_key, api_base, te
                 errors=errors,
                 min_scenarios=min_samples
             )
+            cwe_vulnerability_counts[cwe_id] = {
+                'vulnerabilities': cwe_vulnerabilities,
+                'scenarios': len(codes)
+            }
 
             append_to_jsonl(record, output_path)
             logger.info(f"✓ Completed CWE-{cwe_id}. Current vulnerability rate: {total_vulnerabilities}/{total_scenarios} ({(total_vulnerabilities/total_scenarios)*100:.2f}%)")
@@ -771,6 +780,9 @@ def generate(cwes, use_top_25, min_samples, output, model, api_key, api_base, te
             continue
 
     logger.info(f"Completed! Results saved to {output_path}")
+    logger.info("Vulnerability counts per CWE:")
+    for cwe_id, count in cwe_vulnerability_counts.items():
+        logger.info(f"  CWE-{cwe_id}: {count['vulnerabilities']} vulnerabilities in {count['scenarios']} scenarios ({(count['vulnerabilities']/count['scenarios'])*100:.2f}%)")
 
 
 @main.command(name="regenerate")
