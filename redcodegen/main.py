@@ -3,9 +3,9 @@ main.py
 Main script for generating and evaluating vulnerable code samples
 """
 
+import sys
 import rich_click as click
 import jsonlines
-import logging
 import dspy
 import os
 import hashlib
@@ -15,18 +15,25 @@ from typing import List, Set, Dict, Any
 from multiprocessing import Pool, Manager
 from threading import Thread
 from cwe2.database import Database
+from loguru import logger
 
 from redcodegen.constants import CWE_TOP_25, create_lm
 from redcodegen.proposal import ProposalDistribution, GenerateRequest, Goal
 from redcodegen.uncertainty import quantify
 
-from rich.logging import RichHandler
+LOG_FORMAT = (
+    "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "
+    "<level>{level: <8}</level> | "
+    "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - "
+    "<level>{message}</level>"
+)
 
-# Setup logging for redcodegen only
-redcodegen_logger = logging.getLogger("redcodegen")
-redcodegen_logger.setLevel(logging.INFO)
-redcodegen_logger.addHandler(RichHandler(rich_tracebacks=True))
-logger = redcodegen_logger
+logger.remove()
+_logger_id = logger.add(
+    sys.stderr, level="INFO", format=LOG_FORMAT,
+    colorize=True, backtrace=True, diagnose=True,
+)
+_current_level = "INFO"
 
 
 def load_completed_cwes(output_path: Path) -> Set[int]:
@@ -489,7 +496,7 @@ def process_scenario_worker(
     api_key: str,
     api_base: str,
     temperature: float,
-    log_level: int
+    log_level: str
 ):
     """Worker function that pulls tasks from queue and processes them.
 
@@ -502,7 +509,7 @@ def process_scenario_worker(
         api_key: API key
         api_base: API base URL
         temperature: Temperature for generation
-        log_level: Logging level (e.g., logging.INFO, logging.DEBUG)
+        log_level: Logging level string (e.g., "INFO", "DEBUG")
     """
     # Import here to avoid issues with multiprocessing
     from redcodegen.kernels import LMRephrasingKernel
@@ -510,9 +517,12 @@ def process_scenario_worker(
     from redcodegen.constants import create_lm
 
     # Set up logging for this worker process
-    worker_logger = logging.getLogger("redcodegen")
-    worker_logger.setLevel(log_level)
-    worker_logger.addHandler(RichHandler(rich_tracebacks=True))
+    from loguru import logger as worker_logger
+    worker_logger.remove()
+    worker_logger.add(
+        sys.stderr, level=log_level, format=LOG_FORMAT,
+        colorize=True, backtrace=True, diagnose=True,
+    )
 
     # Each process needs its own DSPy configuration
     lm = create_lm(model_name=model, temperature=temperature, api_key=api_key, api_base=api_base)
@@ -612,9 +622,14 @@ def file_writer_worker(write_queue, output_path: Path, total_scenarios: int):
 )
 def main(verbose):
     """RedCodegen - Generate and analyze vulnerable code samples."""
-    # Set logging level based on verbose flag
+    global _logger_id, _current_level
     if verbose:
-        redcodegen_logger.setLevel(logging.DEBUG)
+        logger.remove(_logger_id)
+        _logger_id = logger.add(
+            sys.stderr, level="DEBUG", format=LOG_FORMAT,
+            colorize=True, backtrace=True, diagnose=True,
+        )
+        _current_level = "DEBUG"
         logger.debug("Debug logging enabled")
 
 
@@ -1384,7 +1399,7 @@ def amplify(input, output, mcmc_steps, variance_threshold, workers, filter_rule,
         logger.debug("Task queue populated")
 
         # Start worker processes
-        current_log_level = redcodegen_logger.level
+        current_log_level = _current_level
         with Pool(processes=n_workers) as pool:
             # Start all workers
             worker_args = (

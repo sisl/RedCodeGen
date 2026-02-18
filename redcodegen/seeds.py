@@ -4,6 +4,7 @@ import os
 import re
 from pathlib import Path
 from cwe2.database import Database
+from loguru import logger
 
 class DescribeScenario(dspy.Signature):
     """given a code snippet, describe what scenario/situation the code is trying to accomplish"""
@@ -59,7 +60,7 @@ def seed_scenarios(k=None) -> list[dspy.Example]:
 
             examples.append(example)
         except Exception as e:
-            print(f"Warning: Could not get CWE-{cwe_id} from database: {e}")
+            logger.warning(f"Could not get CWE-{cwe_id} from database: {e}")
             continue
 
     return examples
