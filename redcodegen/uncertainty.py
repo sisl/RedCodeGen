@@ -1,15 +1,13 @@
 import math
 import random
-import logging
 from typing import Tuple
 from dataclasses import dataclass
+from loguru import logger
 # from multiprocessing import Pool
 
 from redcodegen.generator import run_k
 from redcodegen.validator import evaluate
 from redcodegen.kernels import Kernel
-
-logger = logging.getLogger("redcodegen")
 
 @dataclass
 class FailureBeta:
@@ -115,7 +113,7 @@ def mcmc(tau: str, kernel: Kernel, turns=100, find_failure=True, symmetric=False
     samples = [(tau, fail_dist)]
 
     for i in range(turns):
-        logger.debug("MCMC turn %d/%d", i+1, turns)
+        logger.debug("MCMC turn {}/{}", i+1, turns)
 
         # get next sample
         (tau, fail_dist) = samples[-1]
@@ -128,16 +126,16 @@ def mcmc(tau: str, kernel: Kernel, turns=100, find_failure=True, symmetric=False
 
         try:
             if (fail_estimate_fn(fail_dist_prime) > 0 and fail_estimate_fn(fail_dist) == 0):
-                logger.debug("FORCE ACCEPT %s", str(fail_dist_prime)) # since this is negative infinity
+                logger.debug("FORCE ACCEPT {}", fail_dist_prime) # since this is negative infinity
                 samples.append((tau_prime, fail_dist_prime))
             elif (fail_estimate_fn(fail_dist_prime) > 0 and # otherwise taking the log becomes -infty
                 random.random() < math.exp((math.log(fail_estimate_fn(fail_dist_prime))-
                                             math.log(fail_estimate_fn(fail_dist))+
                                             bonus))):
-                logger.debug("ACCEPT %s", str(fail_dist_prime))
+                logger.debug("ACCEPT {}", fail_dist_prime)
                 samples.append((tau_prime, fail_dist_prime))
             else:
-                logger.debug("REJECT %s", str(fail_dist_prime))
+                logger.debug("REJECT {}", fail_dist_prime)
         except:
             import ipdb
             ipdb.set_trace()
