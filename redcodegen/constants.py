@@ -1,5 +1,9 @@
 import os
 import dspy
+import json
+from loguru import logger
+from urllib.request import Request, urlopen
+from urllib.error import URLError, HTTPError
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -10,6 +14,83 @@ CWE_TOP_25 = [
     269, 502, 200, 863, 918, 119, 476,
     798, 190, 400, 306
 ]
+
+
+def _normalize_api_base(api_base: str | None) -> str | None:
+    if not api_base:
+        return api_base
+    normalized = api_base.strip()
+    if not normalized.startswith("http://") and not normalized.startswith("https://"):
+        normalized = f"http://{normalized}"
+    return normalized.rstrip("/")
+
+
+def _fetch_server_models(api_base: str, api_key: str | None) -> list[dict]:
+    models_url = f"{api_base}/models"
+    headers = {"Accept": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+
+    req = Request(models_url, headers=headers)
+    with urlopen(req, timeout=5) as response:
+        body = response.read().decode("utf-8")
+    payload = json.loads(body)
+
+    data = payload.get("data", []) if isinstance(payload, dict) else []
+    models = []
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        model_id = item.get("id")
+        if isinstance(model_id, str):
+            models.append(item)
+    return models
+
+
+def _resolve_server_model_id(model_name: str, api_base: str, api_key: str | None) -> str:
+    try:
+        models = _fetch_server_models(api_base, api_key)
+    except (URLError, HTTPError, TimeoutError, json.JSONDecodeError):
+        return model_name
+
+    candidates = [model_name]
+    if model_name.startswith("openai/"):
+        candidates.append(model_name[len("openai/"):])
+
+    lowered_to_actual: dict[str, str] = {}
+    for model in models:
+        model_id = model.get("id")
+        if not isinstance(model_id, str):
+            continue
+
+        aliases = {model_id}
+        model_root = model.get("root")
+        if isinstance(model_root, str):
+            aliases.add(model_root)
+            aliases.add(model_root.split("/")[-1])
+
+        normalized_id = model_id.replace("_", "-")
+        aliases.add(normalized_id)
+
+        for alias in aliases:
+            lowered_to_actual[alias.lower()] = model_id
+
+    for candidate in candidates:
+        candidate_variants = {
+            candidate,
+            candidate.replace("_", "-"),
+            candidate.split("/")[-1],
+            candidate.split("/")[-1].replace("_", "-"),
+        }
+
+        match = None
+        for variant in candidate_variants:
+            match = lowered_to_actual.get(variant.lower())
+            if match:
+                break
+        if match:
+            return match
+    return model_name
 
 def create_lm(model_name="openai/gpt-4o-mini", temperature=0.8, api_key=None, api_base=None):
     """Create a DSPy language model instance.
@@ -26,18 +107,33 @@ def create_lm(model_name="openai/gpt-4o-mini", temperature=0.8, api_key=None, ap
     if api_base is None:
         api_base = os.environ.get("OPENAI_API_BASE")
 
-    if api_base is None:
+    normalized_model = model_name
+    normalized_api_base = _normalize_api_base(api_base)
+
+    if normalized_api_base:
+        resolved_model = _resolve_server_model_id(normalized_model, normalized_api_base, api_key)
+        if not resolved_model.startswith("openai/"):
+            normalized_model = f"openai/{resolved_model}"
+        else:
+            normalized_model = resolved_model
+
+    # Log output (technically we should do it after running )
+    if normalized_model.startswith("openai/"):
+        configured_model = normalized_model[len("openai/"):]
+    logger.info(f"Configured model: {configured_model}")
+
+    if normalized_api_base is None:
         return dspy.LM(
-            model_name,
+            normalized_model,
             api_key=api_key,
             temperature=temperature,
             max_tokens=16000
         )
     else:
         return dspy.LM(
-            model_name,
+            normalized_model,
             api_key=api_key,
-            api_base=api_base,
+            api_base=normalized_api_base,
             temperature=temperature,
             max_tokens=16000
         )

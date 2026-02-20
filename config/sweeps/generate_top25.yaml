@@ -19,14 +19,29 @@ runs:
       - model=openai/gpt-5.2-2025-12-11
     api_key_env: OPENAI_API_KEY
 
+  - name: gpt-5.2-codex
+    overrides:
+      - model=openai/gpt-5.2-codex
+    api_key_env: OPENAI_API_KEY
+
+  - name: gpt-oss-120b
+    overrides:
+      - model=openai/gpt-oss-120b
+    api_key_env: OPENAI_API_KEY
+
+  - name: gpt-oss-20b
+    overrides:
+      - model=openai/gpt-oss-20b
+    api_key_env: OPENAI_API_KEY
+
   - name: qwen3-coder-bend
     overrides:
-      - model=qwen/Qwen3-Coder-30B-A3B-Instruct
+      - model=qwen3-coder-30B-a3b-Instruct # use lower-case name without "qwen/" prefix to avoid vLLM/OpenAI-compatible server issues
       - api_base=http://bend.stanford.edu:11401/v1
     api_key_env: "hello!"
 
   - name: glm-47-flash-bend
     overrides:
-      - model=zai-org/GLM-4.7-Flash
+      - model=glm-4.7-flash
       - api_base=http://bend.stanford.edu:11402/v1
     api_key_env: "hello!"

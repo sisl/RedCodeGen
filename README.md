@@ -111,13 +111,15 @@ For a one-sample smoke test on `CWE-434`, apply CLI overrides on top of that def
 
 ```bash
 uv run rcg sweep generate \
-  cwes=[434] \
-  use_top_25=false \
-  min_samples=1 \
-  temperature=0.8 \
-  output_dir=./output \
+  'cwes=[434]' \
+  'use_top_25=false' \
+  'min_samples=1' \
+  'temperature=0.8' \
+  'output_dir=./output' \
   --runs-config config/sweeps/cwe434_smoke_runs.yaml
 ```
+
+In `zsh`, quote Hydra overrides that contain brackets (for example, `'cwes=[434]'`) to avoid shell glob expansion.
 
 `--runs-config` supports Hydra-style per-run overrides, including arbitrary config keys (for example, changing `min_samples` for a single run):
 

@@ -106,6 +106,7 @@ def generate(
                 hydra_cfg = compose(config_name=config_name, overrides=base_overrides)
                 flat = OmegaConf.to_container(hydra_cfg, resolve=True)
                 cfg = GenerateConfig(**flat)
+                configure_logging(verbose=cfg.verbose)
                 result = generate_scenarios(cfg)
                 logger.info(f"{base_overrides} [{cfg.model}] -> {result}")
                 continue
@@ -117,6 +118,7 @@ def generate(
                 flat = OmegaConf.to_container(hydra_cfg, resolve=True)
                 run_flat = _maybe_apply_api_key_env(flat, run)
                 cfg = GenerateConfig(**run_flat)
+                configure_logging(verbose=cfg.verbose)
                 result = generate_scenarios(cfg)
                 logger.info(f"{all_overrides} [{run_name}] -> {result}")
 

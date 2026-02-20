@@ -85,12 +85,13 @@ def build_record(
     }
 
 def generate_scenarios(config: GenerateConfig):
-    logger.debug(f"Starting generation with config: {config}")
+    # Ensure we don't print the API key in logs
+    safe_config = config.model_copy(update={"api_key": "***" if config.api_key else None})
+    logger.debug(f"Starting generation with config: {safe_config}")
 
     # Configure DSPy with specified model
     lm = create_lm(model_name=config.model, temperature=config.temperature, api_key=config.api_key, api_base=config.api_base)
     dspy.configure(lm=lm)
-    logger.info(f"Configured model: {config.model}")
 
     # Import generator and validator after configuring dspy
     from redcodegen.generator import run_cwe
@@ -103,18 +104,19 @@ def generate_scenarios(config: GenerateConfig):
     # Construct output filename with model and temperature info
     temperature_str = f't{config.temperature}'.replace('.', 'p')
     model_str = config.model.split('/')[-1].replace('-', '_')  # Use model name for filename
-    output_filename = f"generated_scenarios_{datetime.datetime.utcnow().strftime('%Y%m%dT%H%M%S')}_{model_str}_{temperature_str}_n{config.min_samples}.jsonl"
+    # datetime_str = datetime.datetime.utcnow().strftime('%Y%m%dT%H%M%S')
+    output_filename = f"generated_scenarios_{model_str}_{temperature_str}_n{config.min_samples}.jsonl"
     output_path = output_dir / output_filename
 
     logger.info(f"Output will be saved to: {output_path.absolute()}")
 
     # Determine which CWEs to process
-    if config.use_top_25:
-        cwes_to_process = CWE_TOP_25
-        logger.info(f"Processing CWE Top 25 ({len(cwes_to_process)} CWEs)")
-    elif config.cwes:
+    if config.cwes:
         cwes_to_process = list(config.cwes)
         logger.info(f"Processing {len(cwes_to_process)} specified CWEs")
+    elif config.use_top_25:
+        cwes_to_process = CWE_TOP_25
+        logger.info(f"Processing CWE Top 25 ({len(cwes_to_process)} CWEs)")
     else:
         logger.error("Must specify either --cwes or --use-top-25")
         raise typer.Exit(code=1)
@@ -154,7 +156,7 @@ def generate_scenarios(config: GenerateConfig):
             cwe_description = entry.extended_description or entry.description
 
             # Generate code samples
-            logger.info(f"  Generating {config.min_samples} code samples...")
+            logger.info(f"  Generating at least {config.min_samples} code sample(s)...")
             codes = run_cwe(cwe_id, min_scenarios=config.min_samples)
             logger.info(f"  Generated {len(codes)} code samples")
             total_scenarios += len(codes)
