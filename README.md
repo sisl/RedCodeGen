@@ -97,6 +97,45 @@ redcodegen generate --use-top-25 -o results.jsonl # resume existing run
 redcodegen generate --use-top-25 --model openai/gpt-4o # switch model
 ```
 
+## Sweep Command
+
+Use `sweep generate` to run the same generation settings across multiple model configurations.
+
+With the default experiment config (`use_top_25=true`), run:
+
+```bash
+uv run rcg sweep generate --runs-config config/sweeps/cwe434_smoke_runs.yaml
+```
+
+For a one-sample smoke test on `CWE-434`, apply CLI overrides on top of that default:
+
+```bash
+uv run rcg sweep generate \
+  cwes=[434] \
+  use_top_25=false \
+  min_samples=1 \
+  temperature=0.8 \
+  output_dir=./output \
+  --runs-config config/sweeps/cwe434_smoke_runs.yaml
+```
+
+`--runs-config` supports Hydra-style per-run overrides, including arbitrary config keys (for example, changing `min_samples` for a single run):
+
+```yaml
+runs:
+  - name: gpt4o-mini
+    overrides:
+      - model=openai/gpt-4o-mini
+      - api_key=${oc.env:OPENAI_API_KEY}
+
+  - name: qwen-bend-high-samples
+    overrides:
+      - model=openai/Qwen3-Coder-30B-A3B-Instruct
+      - api_base=http://bend.stanford.edu:11401/v1
+      - min_samples=3
+    api_key_env: BEND_API_KEY
+```
+
 Also, you can run
 
 ```bash

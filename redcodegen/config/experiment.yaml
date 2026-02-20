@@ -1,0 +1,9 @@
+verbose: false
+model: openai/gpt-4o-mini
+temperature: 0.8
+cwes: []
+use_top_25: true
+min_samples: 10
+output_dir: ./output
+api_key: null
+api_base: null
