@@ -3,9 +3,9 @@ main.py
 Main script for generating and evaluating vulnerable code samples
 """
 
+import sys
 import rich_click as click
 import jsonlines
-import logging
 import dspy
 import os
 import hashlib
@@ -15,18 +15,25 @@ from typing import List, Set, Dict, Any
 from multiprocessing import Pool, Manager
 from threading import Thread
 from cwe2.database import Database
+from loguru import logger
 
 from redcodegen.constants import CWE_TOP_25, create_lm
 from redcodegen.proposal import ProposalDistribution, GenerateRequest, Goal
 from redcodegen.uncertainty import quantify
 
-from rich.logging import RichHandler
+LOG_FORMAT = (
+    "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "
+    "<level>{level: <8}</level> | "
+    "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - "
+    "<level>{message}</level>"
+)
 
-# Setup logging for redcodegen only
-redcodegen_logger = logging.getLogger("redcodegen")
-redcodegen_logger.setLevel(logging.INFO)
-redcodegen_logger.addHandler(RichHandler(rich_tracebacks=True))
-logger = redcodegen_logger
+logger.remove()
+_logger_id = logger.add(
+    sys.stderr, level="INFO", format=LOG_FORMAT,
+    colorize=True, backtrace=True, diagnose=True,
+)
+_current_level = "INFO"
 
 
 def load_completed_cwes(output_path: Path) -> Set[int]:
@@ -551,7 +558,7 @@ def process_scenario_worker(
     api_key: str,
     api_base: str,
     temperature: float,
-    log_level: int
+    log_level: str
 ):
     """Worker function that pulls tasks from queue and processes them.
 
@@ -564,7 +571,7 @@ def process_scenario_worker(
         api_key: API key
         api_base: API base URL
         temperature: Temperature for generation
-        log_level: Logging level (e.g., logging.INFO, logging.DEBUG)
+        log_level: Logging level string (e.g., "INFO", "DEBUG")
     """
     # Import here to avoid issues with multiprocessing
     from redcodegen.kernels import LMRephrasingKernel
@@ -572,9 +579,12 @@ def process_scenario_worker(
     from redcodegen.constants import create_lm
 
     # Set up logging for this worker process
-    worker_logger = logging.getLogger("redcodegen")
-    worker_logger.setLevel(log_level)
-    worker_logger.addHandler(RichHandler(rich_tracebacks=True))
+    from loguru import logger as worker_logger
+    worker_logger.remove()
+    worker_logger.add(
+        sys.stderr, level=log_level, format=LOG_FORMAT,
+        colorize=True, backtrace=True, diagnose=True,
+    )
 
     # Each process needs its own DSPy configuration
     lm = create_lm(model_name=model, temperature=temperature, api_key=api_key, api_base=api_base)
@@ -674,9 +684,14 @@ def file_writer_worker(write_queue, output_path: Path, total_scenarios: int):
 )
 def main(verbose):
     """RedCodegen - Generate and analyze vulnerable code samples."""
-    # Set logging level based on verbose flag
+    global _logger_id, _current_level
     if verbose:
-        redcodegen_logger.setLevel(logging.DEBUG)
+        logger.remove(_logger_id)
+        _logger_id = logger.add(
+            sys.stderr, level="DEBUG", format=LOG_FORMAT,
+            colorize=True, backtrace=True, diagnose=True,
+        )
+        _current_level = "DEBUG"
         logger.debug("Debug logging enabled")
 
 
@@ -770,9 +785,20 @@ def generate(cwes, use_top_25, min_samples, output, model, api_key, api_base, te
     # Initialize CWE database
     db = Database()
 
+    # Track total scenarios and vulnerabilities for logging
+    total_scenarios = 0
+    total_vulnerabilities = 0
+    total_scenarios_with_vulnerabilities = 0
+    cwe_vulnerability_counts = {}
+
     # Process each CWE
     for idx, cwe_id in enumerate(cwes_to_process, 1):
         logger.info(f"[{idx}/{len(cwes_to_process)}] Processing CWE-{cwe_id}...")
+        logger.info(f"  CWE-{cwe_id}: {db.get(cwe_id).name}")
+
+        # Track vulnerabilities found for this CWE
+        cwe_vulnerabilities = 0
+        cwe_scenarios_with_vulnerabilities = 0
 
         try:
             # Get CWE metadata
@@ -784,6 +810,7 @@ def generate(cwes, use_top_25, min_samples, output, model, api_key, api_base, te
             logger.info(f"  Generating {min_samples} code samples...")
             codes = run_cwe(cwe_id, min_scenarios=min_samples)
             logger.info(f"  Generated {len(codes)} code samples")
+            total_scenarios += len(codes)
 
             # Get scenarios (need to call generate again to get scenarios)
             from redcodegen.scenarios import generate
@@ -800,6 +827,11 @@ def generate(cwes, use_top_25, min_samples, output, model, api_key, api_base, te
                     evaluation = evaluate(code)
                     evaluations.append(evaluation)
                     errors.append(None)
+                    cwe_vulnerabilities += len(evaluation)
+                    total_vulnerabilities += len(evaluation)
+                    if len(evaluation) > 0:
+                        cwe_scenarios_with_vulnerabilities += 1
+                        total_scenarios_with_vulnerabilities += 1
                     logger.info(f"    Found {len(evaluation)} vulnerabilities")
                 except Exception as e:
                     logger.warning(f"    Evaluation failed: {e}")
@@ -817,15 +849,23 @@ def generate(cwes, use_top_25, min_samples, output, model, api_key, api_base, te
                 errors=errors,
                 min_scenarios=min_samples
             )
+            cwe_vulnerability_counts[cwe_id] = {
+                'vulnerabilities': cwe_vulnerabilities,
+                'scenarios_with_vulnerabilities': cwe_scenarios_with_vulnerabilities,
+                'scenarios': len(codes)
+            }
 
             append_to_jsonl(record, output_path)
-            logger.info(f"✓ Completed CWE-{cwe_id}")
+            logger.info(f"✓ Completed CWE-{cwe_id}. Current vulnerability rate: {total_scenarios_with_vulnerabilities}/{total_scenarios} ({(total_scenarios_with_vulnerabilities/total_scenarios)*100:.2f}%), vulnerabilities found so far: {total_vulnerabilities}")
 
         except Exception as e:
             logger.error(f"✗ Failed to process CWE-{cwe_id}: {e}")
             continue
 
     logger.info(f"Completed! Results saved to {output_path}")
+    logger.info("Vulnerability counts per CWE:")
+    for cwe_id, count in cwe_vulnerability_counts.items():
+        logger.info(f"  CWE-{cwe_id}: {count['scenarios_with_vulnerabilities']} scenarios with vulnerabilities in {count['scenarios']} scenarios ({(count['scenarios_with_vulnerabilities']/count['scenarios'])*100:.2f}%), total vulnerabilities: {count['vulnerabilities']}")
 
 
 @main.command(name="regenerate")
@@ -1421,7 +1461,7 @@ def amplify(input, output, mcmc_steps, variance_threshold, workers, filter_rule,
         logger.debug("Task queue populated")
 
         # Start worker processes
-        current_log_level = redcodegen_logger.level
+        current_log_level = _current_level
         with Pool(processes=n_workers) as pool:
             # Start all workers
             worker_args = (

@@ -14,12 +14,10 @@ import subprocess
 import tempfile
 import shutil
 import json
-import logging
 from pathlib import Path
 from typing import List, Dict, Any
 from functools import cache
-
-logger = logging.getLogger("redcodegen")
+from loguru import logger
 
 
 def _find_codeql() -> str:

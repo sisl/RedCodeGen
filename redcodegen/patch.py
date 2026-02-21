@@ -3,16 +3,14 @@ handle git patches on repos (SWEBench Style)
 """
 
 import os
-import logging
 import subprocess
 import tempfile
 import shutil
 from functools import cache
 from typing import Sequence
+from loguru import logger
 
 from redcodegen.validator import evaluate_diff
-
-logger = logging.getLogger("redcodegen")
 
 
 def _run_quiet(cmd: Sequence[str], cwd: str | None = None):
@@ -30,7 +28,7 @@ def _run_quiet(cmd: Sequence[str], cwd: str | None = None):
         stdout = (exc.stdout or "").strip()
         details = stderr or stdout or "<no subprocess output>"
         logger.error(
-            "Subprocess failed (cmd=%s, cwd=%s, rc=%s): %s",
+            "Subprocess failed (cmd={}, cwd={}, rc={}): {}",
             " ".join(cmd),
             cwd,
             exc.returncode,
@@ -170,7 +168,7 @@ def patched_changed_files(repo, commit, patch) -> list[tuple[str, str]]:
                 with open(abs_path, "r", encoding="utf-8") as f:
                     content = f.read()
             except UnicodeDecodeError:
-                logger.debug("Skipping non-text changed file: %s", rel_file)
+                logger.debug("Skipping non-text changed file: {}", rel_file)
                 continue
             results.append((rel_path, content))
 

@@ -10,6 +10,7 @@ dependencies = [
     "datasets>=4.5.0",
     "dspy>=3.0.3",
     "jsonlines>=4.0.0",
+    "loguru>=0.7.0",
     "nltk>=3.9.2",
     "pandas>=2.3.3",
     "peft>=0.18.0",
