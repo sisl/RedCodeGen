@@ -11,8 +11,7 @@ one works. and thus we are able to get data for e.g., DPO.
 from redcodegen.generator import coder
 from redcodegen.validator import evaluate
 
-import logging
-logger = logging.getLogger("redcodegen")
+from loguru import logger
 
 def rollout_k_pairs(prompt, k=5, max_rollouts=20):
     """Given a string prompt, roll out some generations to make paired answers
