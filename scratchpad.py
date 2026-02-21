@@ -10,6 +10,17 @@ load_dotenv()
 import logging
 logger = logging.getLogger("redcodegen")
 
+
+from rich.logging import RichHandler
+
+# Setup logging for redcodegen only
+redcodegen_logger = logging.getLogger("redcodegen")
+redcodegen_logger.setLevel(logging.DEBUG)
+redcodegen_logger.addHandler(RichHandler(rich_tracebacks=True))
+logger = redcodegen_logger
+
+
+
 from redcodegen.kernels import LMRephrasingKernel
 from redcodegen.uncertainty import mcmc, FailureBeta
 
@@ -20,15 +31,27 @@ from datasets import load_dataset
 
 from redcodegen.patch import patched_evaluate
 
+import jsonlines 
+
+
+with jsonlines.open("output_from_amplify") as f:
+    data = [i for i in f]
+prompts = [j["prompt"] for i in data for j in i["mcmc_failures"]]
+for each prompt:
+    run redcodegen.contrastive.rollout_k_pairs(prompt)
+    save results sensibly
+
 
 import dspy
 dspy.configure(lm=dspy.LM("openai/gpt-4o-mini"), temperature=0.8)
 
-ds = load_dataset("SWE-bench/SWE-bench_Verified")["test"]
 
-mm = regenerate(str=ds[0]["patch"])
-ds[0]["patch"]
-mm
+# dspy.LM("openai/gpt-4o-mini")("Woah! I'm a chicken.")
+# ds = load_dataset("SWE-bench/SWE-bench_Verified")["test"]
+
+# mm = regenerate(str=ds[0]["patch"])
+# ds[0]["patch"]
+# mm
 
 # with open("", 'r') as f:
 #     a = f.read()

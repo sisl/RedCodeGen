@@ -415,6 +415,68 @@ def append_propose_record(record: Dict[str, Any], output_path: Path):
         writer.write(record)
 
 
+def load_completed_rollouts(output_path: Path) -> Set[str]:
+    """Load rollout prompts that have already been processed.
+
+    Args:
+        output_path: Path to the rollout output JSONL file
+
+    Returns:
+        Set of prompt SHA256 hashes already processed
+    """
+    completed = set()
+
+    if not output_path.exists():
+        return completed
+
+    try:
+        with jsonlines.open(output_path) as reader:
+            for record in reader:
+                prompt_hash = record.get("prompt_sha256")
+                if prompt_hash:
+                    completed.add(prompt_hash)
+        logger.info(f"Found {len(completed)} already-completed rollouts in {output_path}")
+    except Exception as e:
+        logger.warning(f"Could not read existing rollout output file: {e}")
+
+    return completed
+
+
+def build_rollout_record(
+    prompt: str,
+    pairs: List[tuple[str, str, Any]],
+    k: int,
+    max_rollouts: int
+) -> Dict[str, Any]:
+    """Build a rollout record for JSONL output."""
+    prompt_sha256 = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
+
+    pairs_out = [
+        {
+            "success": success,
+            "failure": failure,
+            "failure_info": failure_info
+        }
+        for success, failure, failure_info in pairs
+    ]
+
+    return {
+        "prompt": prompt,
+        "prompt_sha256": prompt_sha256,
+        "timestamp": datetime.utcnow().isoformat() + 'Z',
+        "model_config": get_model_config(),
+        "k": k,
+        "max_rollouts": max_rollouts,
+        "pairs": pairs_out
+    }
+
+
+def append_rollout_record(record: Dict[str, Any], output_path: Path):
+    """Append a rollout record to the JSONL file."""
+    with jsonlines.open(output_path, mode='a') as writer:
+        writer.write(record)
+
+
 def load_processed_patch_evaluations(output_path: Path) -> Set[tuple[str, str, str, str, str, str, bool]]:
     """Load patch evaluations that have already been processed.
 
@@ -1640,6 +1702,137 @@ def propose(output, base_model, peft, num_samples, variance_threshold, min_rollo
         logger.info(f"  ✓ Completed {vuln_type}")
 
     logger.info(f"Completed! Processed {task_counter} tasks, results saved to {output_path}")
+
+
+@main.command()
+@click.option(
+    '--input', '-i',
+    required=True,
+    type=click.Path(exists=True),
+    help='Input JSONL file from amplify command'
+)
+@click.option(
+    '--output', '-o',
+    required=True,
+    type=click.Path(),
+    help='Output JSONL file for rollout pairs'
+)
+@click.option(
+    '--k',
+    default=5,
+    type=int,
+    help='Number of success/failure pairs to collect per prompt (default: 5)'
+)
+@click.option(
+    '--max-rollouts',
+    default=20,
+    type=int,
+    help='Maximum rollouts to attempt per prompt (default: 20)'
+)
+@click.option(
+    '--model', '-m',
+    default='openai/gpt-4o-mini',
+    help='Model identifier for code generation (default: openai/gpt-4o-mini)'
+)
+@click.option(
+    '--api-key',
+    default=None,
+    help='API key (defaults to OPENAI_API_KEY env var)'
+)
+@click.option(
+    '--api-base',
+    default=None,
+    help='API base URL (defaults to OPENAI_API_BASE env var)'
+)
+@click.option(
+    '--temperature',
+    default=0.8,
+    type=float,
+    help='Temperature for code generation (default: 0.8)'
+)
+def rollout(input, output, k, max_rollouts, model, api_key, api_base, temperature):
+    """Roll out amplified failure prompts to produce paired success/failure generations."""
+    # Configure DSPy with specified model
+    lm = create_lm(model_name=model, temperature=temperature, api_key=api_key, api_base=api_base)
+    dspy.configure(lm=lm)
+    logger.info(f"Configured code generation model: {model}")
+
+    from redcodegen.contrastive import rollout_k_pairs
+
+    input_path = Path(input)
+    output_path = Path(output)
+
+    # Load amplify data
+    logger.info(f"Loading amplified data from {input_path}")
+    try:
+        with jsonlines.open(input_path) as reader:
+            data = [record for record in reader]
+    except Exception as e:
+        logger.error(f"Failed to read input file: {e}")
+        raise click.Abort()
+
+    if not data:
+        logger.warning("No records found in input file")
+        return
+
+    # Extract prompts from mcmc_failures
+    prompts = []
+    for record in data:
+        failures = record.get("mcmc_failures", [])
+        for failure in failures:
+            prompt = failure.get("prompt")
+            if prompt:
+                prompts.append(prompt)
+
+    if not prompts:
+        logger.warning("No failure prompts found in input file")
+        return
+
+    # Deduplicate prompts while preserving order
+    seen_prompts = set()
+    unique_prompts = []
+    for prompt in prompts:
+        if prompt not in seen_prompts:
+            seen_prompts.add(prompt)
+            unique_prompts.append(prompt)
+
+    # Load already-processed prompt hashes for idempotency
+    completed_hashes = load_completed_rollouts(output_path)
+
+    logger.info(
+        f"Prepared {len(unique_prompts)} unique prompts "
+        f"(skipping {len(completed_hashes)} already completed)"
+    )
+
+    processed = 0
+    skipped = 0
+    for idx, prompt in enumerate(unique_prompts, 1):
+        prompt_hash = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
+        if prompt_hash in completed_hashes:
+            skipped += 1
+            continue
+
+        logger.info(f"[{idx}/{len(unique_prompts)}] Rolling out prompt...")
+        try:
+            pairs = rollout_k_pairs(prompt, k=k, max_rollouts=max_rollouts)
+            record = build_rollout_record(
+                prompt=prompt,
+                pairs=pairs,
+                k=k,
+                max_rollouts=max_rollouts
+            )
+            append_rollout_record(record, output_path)
+            completed_hashes.add(prompt_hash)
+            processed += 1
+            logger.info(f"  ✓ Saved {len(pairs)} pairs (requested k={k})")
+        except Exception as e:
+            logger.error(f"  ✗ Failed to roll out prompt: {e}")
+            continue
+
+    logger.info(
+        f"Completed rollout. Saved {processed} prompts "
+        f"(skipped {skipped} already completed) to {output_path}"
+    )
 
 
 if __name__ == '__main__':
