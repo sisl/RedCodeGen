@@ -112,14 +112,17 @@ def create_lm(model_name="openai/gpt-4o-mini", temperature=0.8, api_key=None, ap
 
     if normalized_api_base:
         resolved_model = _resolve_server_model_id(normalized_model, normalized_api_base, api_key)
-        if not resolved_model.startswith("openai/"):
-            normalized_model = f"openai/{resolved_model}"
-        else:
-            normalized_model = resolved_model
+        # LiteLLM strips one provider prefix for `openai/...` models.
+        # For OpenAI-compatible local servers that publish model ids like
+        # `openai/gpt-oss-120b`, use a double prefix so the wire request keeps
+        # the expected `openai/...` id.
+        normalized_model = f"openai/{resolved_model}"
 
     # Log output (technically we should do it after running )
     if normalized_model.startswith("openai/"):
         configured_model = normalized_model[len("openai/"):]
+    else:
+        configured_model = normalized_model
     logger.info(f"Configured model: {configured_model}")
 
     if normalized_api_base is None:

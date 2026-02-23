@@ -27,12 +27,15 @@ runs:
   - name: gpt-oss-120b
     overrides:
       - model=openai/gpt-oss-120b
-    api_key_env: OPENAI_API_KEY
+      - api_base=http://longbeach.stanford.edu:11401/v1
+    api_key_env: "hello!"
 
   - name: gpt-oss-20b
     overrides:
       - model=openai/gpt-oss-20b
-    api_key_env: OPENAI_API_KEY
+      - api_base=http://longbeach.stanford.edu:11401/v1
+    api_key_env: "hello!"
+
 
   - name: qwen3-coder-bend
     overrides:
