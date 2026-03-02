@@ -32,7 +32,7 @@ class CodeGenerator:
         self.model = AutoModelForCausalLM.from_pretrained(
             model,
             device_map="auto",
-            torch_dtype=torch.bfloat16
+            dtype=torch.bfloat16
         )
         self.tokenizer = AutoTokenizer.from_pretrained(model)
         self.tokenizer.padding_side = 'left'
@@ -64,7 +64,7 @@ class CodeGenerator:
             padding=True,
             return_tensors="pt"
         ).to(self.device)
-        result = self.model.generate(**inputs, max_new_tokens=1000)
+        result = self.model.generate(**inputs, max_new_tokens=1000, pad_token_id=self.tokenizer.eos_token_id)
         decoded = self.tokenizer.batch_decode(result, skip_special_tokens=True)
         code = decoded[0].split("assistant\n")[-1].strip()
         return code.replace("```python", "").replace("```", "").strip()
