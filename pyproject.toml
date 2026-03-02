@@ -22,7 +22,7 @@ dependencies = [
     "semgrep>=1.86.0",
     "tokenizers>=0.22.1",
     "torch>=2.9.1",
-    "transformers>=4.57.1",
+    "transformers>=5.1.0",
 ]
 
 [project.scripts]
