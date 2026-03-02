@@ -24,7 +24,7 @@ logger = redcodegen_logger
 from redcodegen.kernels import LMRephrasingKernel
 from redcodegen.uncertainty import mcmc, FailureBeta
 
-from redcodegen.generator import run
+from redcodegen.generator.prompting import run
 from redcodegen.validator import evaluate
 
 from datasets import load_dataset

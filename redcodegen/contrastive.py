@@ -8,7 +8,7 @@ make k *pairs* of continuations. one fails static validation and
 one works. and thus we are able to get data for e.g., DPO.
 """
 
-from redcodegen.generator import coder
+from redcodegen.generator.prompting import coder
 from redcodegen.validator import evaluate
 
 from loguru import logger

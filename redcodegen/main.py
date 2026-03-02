@@ -740,7 +740,12 @@ def main(verbose):
     type=float,
     help='Temperature for code generation (default: 0.8)'
 )
-def generate(cwes, use_top_25, min_samples, output, model, api_key, api_base, temperature):
+@click.option(
+    '--generator', '-g',
+    default=None,
+    help='Local HF model for code generation (default: None, uses prompting via DSPy)'
+)
+def generate(cwes, use_top_25, min_samples, output, model, api_key, api_base, temperature, generator):
     """Generate benign prompts that could result in vulnerabilities exercising specified CWEs.
 
     Examples:
@@ -749,6 +754,7 @@ def generate(cwes, use_top_25, min_samples, output, model, api_key, api_base, te
         redcodegen generate --use-top-25 # run CWE top 25
         redcodegen generate --use-top-25 -o results.jsonl # resume existing run
         redcodegen generate --use-top-25 --model openai/gpt-4o # switch model
+        redcodegen generate --use-top-25 -g meta-llama/Llama-3-8B # local model
     """
     # Configure DSPy with specified model
     lm = create_lm(model_name=model, temperature=temperature, api_key=api_key, api_base=api_base)
@@ -756,7 +762,12 @@ def generate(cwes, use_top_25, min_samples, output, model, api_key, api_base, te
     logger.info(f"Configured model: {model}")
 
     # Import generator and validator after configuring dspy
-    from redcodegen.generator import run_cwe
+    if generator is not None:
+        from redcodegen.generator.inference import run_cwe, set_model
+        set_model(generator)
+        logger.info(f"Using local inference model: {generator}")
+    else:
+        from redcodegen.generator.prompting import run_cwe
     from redcodegen.validator import evaluate
 
     output_path = Path(output)
@@ -914,7 +925,12 @@ def generate(cwes, use_top_25, min_samples, output, model, api_key, api_base, te
     type=float,
     help='Temperature for code generation (default: 0.8)'
 )
-def regenerate_examples(dir, patches, min_samples, output, model, api_key, api_base, temperature):
+@click.option(
+    '--generator', '-g',
+    default=None,
+    help='Local HF model for code generation (default: None, uses prompting via DSPy)'
+)
+def regenerate_examples(dir, patches, min_samples, output, model, api_key, api_base, temperature, generator):
     """Regenerate code examples from a directory of example files or patch records."""
     # Configure DSPy with specified model
     lm = create_lm(model_name=model, temperature=temperature, api_key=api_key, api_base=api_base)
@@ -922,7 +938,12 @@ def regenerate_examples(dir, patches, min_samples, output, model, api_key, api_b
     logger.info(f"Configured model: {model}")
 
     # Import generator and validator after configuring dspy
-    from redcodegen.generator import run_example
+    if generator is not None:
+        from redcodegen.generator.inference import run_example, set_model
+        set_model(generator)
+        logger.info(f"Using local inference model: {generator}")
+    else:
+        from redcodegen.generator.prompting import run_example
     from redcodegen.validator import evaluate
 
     output_path = Path(output)
