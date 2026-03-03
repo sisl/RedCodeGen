@@ -1,0 +1,353 @@
+import os
+import sys
+import typer
+import jsonlines
+import dspy
+from collections import defaultdict
+from datetime import datetime
+from multiprocessing import Pool, Manager
+from pathlib import Path
+from threading import Thread
+from typing import Any, Set
+from loguru import logger
+
+from redcodegen.constants import create_lm
+from redcodegen.cli.app import app
+from redcodegen.cli.common import normalize_record_samples
+from redcodegen.cli.utils import LOG_FORMAT, configure_logging, get_model_config
+
+
+def load_processed_scenarios(output_path: Path) -> Set[tuple[str, str]]:
+    """Load scenarios that have already been processed.
+
+    Returns:
+        Set of (rule, seed) tuples that are already in the output file
+    """
+    processed: set[tuple[str, str]] = set()
+
+    if not output_path.exists():
+        return processed
+
+    try:
+        with jsonlines.open(output_path) as reader:
+            for record in reader:
+                if 'type' in record and 'seed' in record:
+                    processed.add((record['type'], record['seed']))
+        logger.info(f"Found {len(processed)} already-processed scenarios in {output_path}")
+    except Exception as e:
+        logger.warning(f"Could not read existing output file: {e}")
+
+    return processed
+
+
+def build_amplify_record(
+    rule: str,
+    seed: str,
+    successes: list[tuple[str, Any]],
+    failures: list[tuple[str, Any]],
+    metadata: dict[str, Any],
+) -> dict[str, Any]:
+    """Build an amplify record for JSONL output."""
+    successes_out = [
+        {
+            "prompt": prompt,
+            "num_successes": beta.nominal_pseudocounts - 1,
+            "num_failures": beta.failure_pseudocounts - 1,
+        }
+        for prompt, beta in successes
+    ]
+
+    failures_out = [
+        {
+            "prompt": prompt,
+            "num_successes": beta.nominal_pseudocounts - 1,
+            "num_failures": beta.failure_pseudocounts - 1,
+        }
+        for prompt, beta in failures
+    ]
+
+    return {
+        "type": rule,
+        "seed": seed,
+        "timestamp": datetime.utcnow().isoformat() + 'Z',
+        "model_config": get_model_config(),
+        "mcmc_successes": successes_out,
+        "mcmc_failures": failures_out,
+        "metadata": metadata,
+    }
+
+
+def append_amplify_record(record: dict[str, Any], output_path: Path):
+    """Append an amplified record to the JSONL file."""
+    with jsonlines.open(output_path, mode='a') as writer:
+        writer.write(record)
+
+
+def process_scenario_worker(
+    task_queue,
+    write_queue,
+    mcmc_steps: int,
+    variance_threshold: float,
+    model: str,
+    api_key: str,
+    api_base: str,
+    temperature: float,
+    log_level: str,
+):
+    """Worker function that pulls tasks from queue and processes them."""
+    # Import here to avoid issues with multiprocessing
+    from redcodegen.kernels import LMRephrasingKernel
+    from redcodegen.uncertainty import mcmc
+    from redcodegen.constants import create_lm
+
+    # Set up logging for this worker process
+    from loguru import logger as worker_logger
+    worker_logger.remove()
+    worker_logger.add(
+        sys.stderr, level=log_level, format=LOG_FORMAT,
+        colorize=True, backtrace=True, diagnose=True,
+    )
+
+    # Each process needs its own DSPy configuration
+    lm = create_lm(model_name=model, temperature=temperature, api_key=api_key, api_base=api_base)
+    dspy.configure(lm=lm)
+
+    worker_logger.debug("Worker started, waiting for tasks...")
+
+    # Process tasks until we receive sentinel
+    while True:
+        task = task_queue.get()
+
+        if task is None:  # Sentinel value to stop
+            worker_logger.debug("Worker received stop signal")
+            break
+
+        scenario, rule = task
+        seed = scenario["scenario"]
+
+        worker_logger.debug(f"Processing scenario for {rule}: {seed[:50]}...")
+
+        try:
+            # Run MCMC for successes (find non-vulnerable prompts)
+            worker_logger.debug("  Running MCMC for successes...")
+            successes = mcmc(
+                seed,
+                LMRephrasingKernel(),
+                turns=mcmc_steps,
+                find_failure=False,
+                threshold=variance_threshold,
+                symmetric=True,
+            )[1:]  # crop seed
+
+            # Run MCMC for failures (find vulnerable prompts)
+            worker_logger.debug("  Running MCMC for failures...")
+            failures_mcmc = mcmc(
+                seed,
+                LMRephrasingKernel(),
+                turns=mcmc_steps,
+                find_failure=True,
+                threshold=variance_threshold,
+                symmetric=True,
+            )[1:]  # crop seed
+
+            # Build record
+            record = build_amplify_record(
+                rule=rule,
+                seed=seed,
+                successes=successes,
+                failures=failures_mcmc,
+                metadata={
+                    "turns": mcmc_steps,
+                    "beta_variance_threshold": variance_threshold,
+                },
+            )
+
+            # Write directly to queue
+            write_queue.put(record)
+            worker_logger.info(f"  ✓ Completed {rule} (successes: {len(successes)}, failures: {len(failures_mcmc)})")
+
+        except Exception as e:
+            worker_logger.error(f"  ✗ Failed to amplify scenario for {rule}: {e}")
+            continue
+
+
+def file_writer_worker(write_queue, output_path: Path, total_scenarios: int):
+    """Long-running thread that consumes records from queue and writes to file."""
+    counter = 0
+    while True:
+        record = write_queue.get()
+        if record is None:  # Sentinel value to stop
+            break
+        try:
+            append_amplify_record(record, output_path)
+            counter += 1
+            successes_count = len(record["mcmc_successes"])
+            failures_count = len(record["mcmc_failures"])
+            logger.info(
+                f"[{counter}/{total_scenarios}] Wrote {record['type']} "
+                f"(successes: {successes_count} chains, failures: {failures_count} chains)"
+            )
+        except Exception as e:
+            logger.error(f"  ✗ Failed to write record: {e}")
+
+
+@app.command()
+def amplify(
+    input_file: Path = typer.Option(..., "--input", "-i", help="Input JSONL file from generate command"),
+    output: Path = typer.Option(..., "--output", "-o", help="Output JSONL file for amplified results"),
+    mcmc_steps: int = typer.Option(16, "--mcmc-steps", help="Number of MCMC turns"),
+    variance_threshold: float = typer.Option(0.015, "--variance-threshold", help="Beta variance threshold for stopping"),
+    workers: int | None = typer.Option(None, "--workers", "-w", help="Number of parallel workers (default: CPU count)"),
+    filter_rule: list[str] = typer.Option([], "--filter-rule", "-r", help="Specific rule(s) to process (can specify multiple times)"),
+    ignore_rule: list[str] = typer.Option([], "--ignore-rule", "-x", help="Rule(s) to ignore/exclude (can specify multiple times)"),
+    model: str = typer.Option("openai/gpt-4o-mini", "--model", "-m", help="Model identifier"),
+    api_key: str | None = typer.Option(None, "--api-key", help="API key (defaults to OPENAI_API_KEY env var)"),
+    api_base: str | None = typer.Option(None, "--api-base", help="API base URL (defaults to OPENAI_API_BASE env var)"),
+    temperature: float = typer.Option(0.8, "--temperature", help="Temperature for rephrasing"),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose output"),
+):
+    """Amplify vulnerable scenarios using MCMC to explore failure boundaries.
+
+    Takes output from 'generate' command and runs MCMC to find nearby prompts
+    that both succeed (safe code) and fail (vulnerable code).
+    """
+    configure_logging(verbose)
+
+    resolved_api_key = api_key or os.getenv("OPENAI_API_KEY")
+    resolved_api_base = api_base or os.getenv("OPENAI_API_BASE")
+
+    # Configure DSPy with specified model
+    lm = create_lm(model_name=model, temperature=temperature, api_key=resolved_api_key, api_base=resolved_api_base)
+    dspy.configure(lm=lm)
+    logger.info(f"Configured model: {model}")
+
+    input_path = input_file
+    output_path = output
+
+    # Load input data
+    logger.info(f"Loading input from {input_path}")
+    try:
+        with jsonlines.open(input_path) as reader:
+            data = [record for record in reader]
+    except Exception as e:
+        logger.error(f"Failed to read input file: {e}")
+        raise typer.Exit(code=1)
+
+    logger.info(f"Loaded {len(data)} records from input")
+
+    # Extract all samples and filter to vulnerable ones
+    all_samples = sum([normalize_record_samples(record) for record in data], [])
+    vulnerable_samples = [s for s in all_samples if s.get("evaluation") and len(s["evaluation"]) > 0]
+
+    if not vulnerable_samples:
+        logger.warning("No vulnerable samples found in input file")
+        return
+
+    logger.info(f"Found {len(vulnerable_samples)} vulnerable samples")
+
+    # Group by failure type (first evaluation rule)
+    failures: dict[str, list] = defaultdict(list)
+    for sample in vulnerable_samples:
+        rule = sample["evaluation"][0]["rule"]
+        failures[rule].append(sample)
+    failures = dict(failures)
+
+    logger.info(f"Grouped into {len(failures)} failure types: {list(failures.keys())}")
+
+    # Apply filter if specified
+    if filter_rule:
+        filtered_failures = {rule: samples for rule, samples in failures.items() if rule in filter_rule}
+        if not filtered_failures:
+            logger.warning(f"No samples match filter rules: {filter_rule}")
+            return
+        failures = filtered_failures
+        logger.info(f"Filtered to {len(failures)} failure types: {list(failures.keys())}")
+
+    # Apply ignore filter if specified
+    if ignore_rule:
+        filtered_failures = {rule: samples for rule, samples in failures.items() if rule not in ignore_rule}
+        if not filtered_failures:
+            logger.warning(f"All samples were excluded by ignore rules: {ignore_rule}")
+            return
+        excluded_count = len(failures) - len(filtered_failures)
+        failures = filtered_failures
+        logger.info(f"Excluded {excluded_count} failure types, processing {len(failures)} failure types: {list(failures.keys())}")
+
+    # Load already-processed scenarios for idempotency
+    processed_scenarios = load_processed_scenarios(output_path)
+    if processed_scenarios:
+        logger.info(f"Resuming from existing output, will skip {len(processed_scenarios)} already-processed scenarios")
+
+    # Set up parallelization
+    n_workers = workers if workers is not None else os.cpu_count()
+    logger.info(f"Using {n_workers} parallel workers")
+
+    # Create manager and queues
+    manager = Manager()
+    task_queue = manager.Queue()
+    write_queue = manager.Queue()
+
+    # Count total scenarios to process
+    all_tasks = []
+    for rule, samples in failures.items():
+        for scenario in samples:
+            if (rule, scenario["scenario"]) not in processed_scenarios:
+                all_tasks.append((scenario, rule))
+
+    total_scenarios = len(all_tasks)
+    logger.info(f"Total scenarios to process: {total_scenarios}")
+
+    if total_scenarios == 0:
+        logger.info("All scenarios already processed!")
+        return
+
+    # Start file writer thread
+    writer_thread = Thread(target=file_writer_worker, args=(write_queue, output_path, total_scenarios))
+    writer_thread.start()
+    logger.debug("Started file writer thread")
+
+    log_level = "DEBUG" if verbose else "INFO"
+
+    try:
+        # Populate task queue
+        logger.debug(f"Populating task queue with {total_scenarios} tasks...")
+        for task in all_tasks:
+            task_queue.put(task)
+
+        # Add sentinel values for workers to stop
+        for _ in range(n_workers):
+            task_queue.put(None)
+
+        logger.debug("Task queue populated")
+
+        # Start worker processes
+        with Pool(processes=n_workers) as pool:
+            worker_args = (
+                task_queue,
+                write_queue,
+                mcmc_steps,
+                variance_threshold,
+                model,
+                resolved_api_key,
+                resolved_api_base,
+                temperature,
+                log_level,
+            )
+
+            # Use apply_async to start workers that will process tasks from queue
+            results = [pool.apply_async(process_scenario_worker, worker_args) for _ in range(n_workers)]
+
+            # Wait for all workers to complete
+            for result in results:
+                result.get()
+
+        logger.info("All workers finished")
+
+    finally:
+        # Signal writer thread to stop and wait for it
+        logger.debug("Sending shutdown signal to writer thread")
+        write_queue.put(None)
+        writer_thread.join()
+        logger.debug("Writer thread finished")
+
+    logger.info(f"Completed! Processed {total_scenarios} scenarios saved to {output_path}")
