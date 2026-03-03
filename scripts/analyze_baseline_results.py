@@ -38,13 +38,27 @@ with jsonlines.open(DATA, 'r') as d:
 all_samples = []
 
 for i in data:
-    for sample in i["samples"]:
+    if "samples" in i:
+        raw_samples = i["samples"]
+    elif "scenarios" in i:
+        raw_samples = []
+        for scenario_group in i["scenarios"]:
+            for rollout in scenario_group.get("rollouts", []):
+                raw_samples.append({
+                    "scenario": scenario_group["scenario"],
+                    "code": rollout["code"],
+                    "evaluation": rollout.get("vulnerabilities", []),
+                })
+    else:
+        continue
+
+    for sample in raw_samples:
         s = sample
         s["cwe"] = i["cwe_id"]
         s["vulnerabilities"] = s["evaluation"]
         all_samples.append(s)
         if len(s["evaluation"]) > 0:
-            risks = list(i["rule"] for i in s["evaluation"])
+            risks = list(r["rule"] for r in s["evaluation"])
             majority_risk = max(set(risks), key = risks.count)
             s["vulnerability"] = majority_risk
         del s["evaluation"]

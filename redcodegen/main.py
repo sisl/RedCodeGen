@@ -266,6 +266,30 @@ def append_to_jsonl(record: Dict[str, Any], output_path: Path):
     logger.info(f"Saved CWE-{record['cwe_id']} to {output_path}")
 
 
+def normalize_record_samples(record):
+    """Normalize a generate record into a flat list of samples.
+
+    Handles both the old format (record["samples"] with "evaluation")
+    and the new format (record["scenarios"][*]["rollouts"][*] with "vulnerabilities").
+
+    Returns:
+        List of dicts with keys: scenario, code, evaluation
+    """
+    if "samples" in record:
+        return record["samples"]
+
+    samples = []
+    for scenario_group in record.get("scenarios", []):
+        scenario_text = scenario_group["scenario"]
+        for rollout in scenario_group.get("rollouts", []):
+            samples.append({
+                "scenario": scenario_text,
+                "code": rollout["code"],
+                "evaluation": rollout.get("vulnerabilities", []),
+            })
+    return samples
+
+
 def load_processed_scenarios(output_path: Path) -> Set[tuple[str, str]]:
     """Load scenarios that have already been processed in the amplify command.
 
@@ -1316,7 +1340,7 @@ def amplify(input, output, mcmc_steps, variance_threshold, workers, filter_rule,
     logger.info(f"Loaded {len(data)} records from input")
 
     # Extract all samples and filter to vulnerable ones
-    all_samples = sum([record["samples"] for record in data], [])
+    all_samples = sum([normalize_record_samples(record) for record in data], [])
     vulnerable_samples = [sample for sample in all_samples if sample.get("evaluation") and len(sample["evaluation"]) > 0]
 
     if not vulnerable_samples:

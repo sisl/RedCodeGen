@@ -40,8 +40,21 @@ BASELINE = "./output/collected/cwe_top_25_gpt4omini.jsonl"
 MCMC = "./output/collected/cwe_top_25_gpt4omini_mcmc.jsonl"
 PROPOSAL = "./output/collected/cwe_proposal_gpt4omini.jsonl"
 
+def _normalize_record_samples(record):
+    if "samples" in record:
+        return record["samples"]
+    samples = []
+    for sg in record.get("scenarios", []):
+        for rollout in sg.get("rollouts", []):
+            samples.append({
+                "scenario": sg["scenario"],
+                "code": rollout["code"],
+                "evaluation": rollout.get("vulnerabilities", []),
+            })
+    return samples
+
 with jsonlines.open(BASELINE, 'r') as data:
-    baseline = sum([i["samples"] for i in data], [])
+    baseline = sum([_normalize_record_samples(i) for i in data], [])
     baseline_successes = [
         i for i in baseline if len(i["evaluation"]) == 0
     ]
