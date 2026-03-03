@@ -11,7 +11,7 @@ import dspy
 from cwe2.database import Database
 from redcodegen.constants import CWE_TOP_25, create_lm
 from redcodegen.analyzers.common import AnalysisTool
-from redcodegen.config import GenerateConfig
+from redcodegen.config import GenerateConfig, RetryStrategy
 from redcodegen.cli.utils import configure_logging, append_to_jsonl, get_model_config
 from redcodegen.cli.app import app
 
@@ -48,7 +48,10 @@ def build_record(
     codes: List[str],
     evaluations: List[Any],
     errors: List[str],
-    min_scenarios: int
+    min_scenarios: int,
+    test_codes: List[str | None] | None = None,
+    tests_passed: List[bool | None] | None = None,
+    retry_strategy: str | None = None,
 ) -> Dict[str, Any]:
     """Build a record for JSONL output.
 
@@ -61,27 +64,40 @@ def build_record(
         evaluations: List of evaluation results (can contain None for failures)
         errors: List of error messages (None for successful evaluations)
         min_scenarios: Minimum scenarios parameter used
+        test_codes: Per-sample test source code (None when tests disabled)
+        tests_passed: Per-sample test pass status (None when tests disabled)
+        retry_strategy: Strategy used for test retries (None when tests disabled)
 
     Returns:
         Dict representing the complete record for this CWE
     """
     samples = []
-    for scenario, code, evaluation, error in zip(scenarios, codes, evaluations, errors):
-        samples.append({
+    for i, (scenario, code, evaluation, error) in enumerate(
+        zip(scenarios, codes, evaluations, errors)
+    ):
+        sample: Dict[str, Any] = {
             "scenario": scenario,
             "code": code,
-            "evaluation": evaluation
-        })
+            "evaluation": evaluation,
+        }
+        if test_codes is not None:
+            sample["test_code"] = test_codes[i]
+        if tests_passed is not None:
+            sample["tests_passed"] = tests_passed[i]
+        samples.append(sample)
 
-    return {
+    record = {
         "cwe_id": cwe_id,
         "cwe_name": cwe_name,
         "cwe_description": cwe_description,
         "timestamp": datetime.datetime.utcnow().isoformat() + 'Z',
         "model_config": get_model_config(),
         "min_scenarios": min_scenarios,
-        "samples": samples
+        "samples": samples,
     }
+    if retry_strategy is not None:
+        record["retry_strategy"] = retry_strategy
+    return record
 
 def generate_scenarios(config: GenerateConfig):
     # Ensure we don't print the API key in logs
@@ -93,7 +109,7 @@ def generate_scenarios(config: GenerateConfig):
     dspy.configure(lm=lm)
 
     # Import generator and validator after configuring dspy
-    from redcodegen.generator import run_cwe
+    from redcodegen.generator import run_cwe, run_cwe_with_tests
     from redcodegen.analyzers.evaluate import evaluate
 
     # Construct output path
@@ -137,6 +153,8 @@ def generate_scenarios(config: GenerateConfig):
     total_scenarios = 0
     total_vulnerabilities = 0
     total_scenarios_with_vulnerabilities = 0
+    total_tests_passed = 0
+    total_tests_run = 0
     cwe_vulnerability_counts = {}
 
     # Process each CWE
@@ -154,16 +172,37 @@ def generate_scenarios(config: GenerateConfig):
             cwe_name = entry.name
             cwe_description = entry.extended_description or entry.description
 
-            # Generate code samples
+            # Generate code samples (with or without tests)
             logger.info(f"  Generating at least {config.min_samples} code sample(s)...")
-            codes = run_cwe(cwe_id, min_scenarios=config.min_samples)
+
+            if config.enable_tests:
+                gen_results = run_cwe_with_tests(
+                    cwe_id,
+                    min_scenarios=config.min_samples,
+                    max_retries=config.max_test_retries,
+                    retry_strategy=config.retry_strategy,
+                )
+                scenarios = [r["scenario"] for r in gen_results]
+                codes = [r["code"] for r in gen_results]
+                test_codes = [r["test_code"] for r in gen_results]
+                tests_passed_list = [r["tests_passed"] for r in gen_results]
+
+                # Track test stats
+                for tp in tests_passed_list:
+                    if tp is not None:
+                        total_tests_run += 1
+                        if tp:
+                            total_tests_passed += 1
+            else:
+                codes = run_cwe(cwe_id, min_scenarios=config.min_samples)
+                from redcodegen.scenarios import generate as gen_scenarios
+                scenario_data = gen_scenarios(cwe_id, min_scenarios=config.min_samples)
+                scenarios = scenario_data["scenarios"][:len(codes)]
+                test_codes = None
+                tests_passed_list = None
+
             logger.info(f"  Generated {len(codes)} code samples")
             total_scenarios += len(codes)
-
-            # Get scenarios (need to call generate again to get scenarios)
-            from redcodegen.scenarios import generate
-            scenario_data = generate(cwe_id, min_scenarios=config.min_samples)
-            scenarios = scenario_data["scenarios"][:len(codes)]  # Match code count
 
             # Evaluate each code sample
             evaluations = []
@@ -195,25 +234,67 @@ def generate_scenarios(config: GenerateConfig):
                 codes=codes,
                 evaluations=evaluations,
                 errors=errors,
-                min_scenarios=config.min_samples
+                min_scenarios=config.min_samples,
+                test_codes=test_codes,
+                tests_passed=tests_passed_list,
+                retry_strategy=config.retry_strategy.value if config.enable_tests else None,
             )
+            # Per-CWE test stats
+            cwe_tests_run = 0
+            cwe_tests_passed = 0
+            if tests_passed_list is not None:
+                for tp in tests_passed_list:
+                    if tp is not None:
+                        cwe_tests_run += 1
+                        if tp:
+                            cwe_tests_passed += 1
+
             cwe_vulnerability_counts[cwe_id] = {
                 'vulnerabilities': cwe_vulnerabilities,
                 'scenarios_with_vulnerabilities': cwe_scenarios_with_vulnerabilities,
-                'scenarios': len(codes)
+                'scenarios': len(codes),
+                'tests_run': cwe_tests_run,
+                'tests_passed': cwe_tests_passed,
             }
 
             append_to_jsonl(record, output_path)
-            logger.info(f"✓ Completed CWE-{cwe_id}. Current vulnerability rate: {total_scenarios_with_vulnerabilities}/{total_scenarios} ({(total_scenarios_with_vulnerabilities/total_scenarios)*100:.2f}%), vulnerabilities found so far: {total_vulnerabilities}")
+
+            status_parts = [
+                f"vulnerability rate: {total_scenarios_with_vulnerabilities}/{total_scenarios} ({(total_scenarios_with_vulnerabilities/total_scenarios)*100:.2f}%)",
+                f"vulnerabilities found so far: {total_vulnerabilities}",
+            ]
+            if config.enable_tests and total_tests_run > 0:
+                status_parts.append(
+                    f"test pass rate: {total_tests_passed}/{total_tests_run} ({(total_tests_passed/total_tests_run)*100:.2f}%)"
+                )
+            logger.info(f"✓ Completed CWE-{cwe_id}. {', '.join(status_parts)}")
 
         except Exception as e:
             logger.error(f"✗ Failed to process CWE-{cwe_id}: {e}")
             continue
 
     logger.info(f"Completed! Results saved to {output_path}")
-    logger.info("Vulnerability counts per CWE:")
-    for cwe_id, count in cwe_vulnerability_counts.items():
-        logger.info(f"  CWE-{cwe_id}: {count['scenarios_with_vulnerabilities']} scenarios with vulnerabilities in {count['scenarios']} scenarios ({(count['scenarios_with_vulnerabilities']/count['scenarios'])*100:.2f}%), total vulnerabilities: {count['vulnerabilities']}")
+    logger.info(f"Total scenarios: {total_scenarios}, vulnerabilities found: {total_vulnerabilities}")
+    logger.info(f"Overall vulnerability rate: {total_scenarios_with_vulnerabilities}/{total_scenarios} ({(total_scenarios_with_vulnerabilities/total_scenarios)*100:.2f}%)")
+    if total_tests_run > 0:
+        logger.info(f"Overall test pass rate: {total_tests_passed}/{total_tests_run} ({(total_tests_passed/total_tests_run)*100:.2f}%)")
+    logger.info("")
+
+    # Unified per-CWE table sorted by decreasing vulnerability rate
+    has_any_tests = any(c['tests_run'] > 0 for c in cwe_vulnerability_counts.values())
+    sorted_cwes = sorted(
+        cwe_vulnerability_counts.items(),
+        key=lambda item: item[1]['scenarios_with_vulnerabilities'] / item[1]['scenarios'] if item[1]['scenarios'] > 0 else 0,
+        reverse=True,
+    )
+    logger.info("Per CWE (sorted by vulnerability rate):")
+    for cwe_id, c in sorted_cwes:
+        vuln_rate = (c['scenarios_with_vulnerabilities'] / c['scenarios'] * 100) if c['scenarios'] > 0 else 0
+        line = f"  CWE-{cwe_id:3d}: vulns {c['scenarios_with_vulnerabilities']:2d}/{c['scenarios']:<2d} ({vuln_rate:5.2f}%)"
+        if has_any_tests and c['tests_run'] > 0:
+            test_rate = c['tests_passed'] / c['tests_run'] * 100
+            line += f", tests {c['tests_passed']:2d}/{c['tests_run']:<2d} ({test_rate:5.2f}%)"
+        logger.info(line)
 
 
 @app.command()
@@ -227,7 +308,10 @@ def generate(
     output_dir: str = typer.Option('./output', "--output", "-o", help="Output directory for generated scenarios"),
     api_key: str | None = typer.Option(None, "--api-key", help="API key for the LLM service"),
     api_base: str | None = typer.Option(None, "--api-base", help="Base URL for the LLM API"),
-    analysis_tool: AnalysisTool = typer.Option(AnalysisTool.SEMGREP.value, "--analysis-tool", "-a", help="Static analysis tool to use for evaluation (e.g., codeql, semgrep, all)")
+    analysis_tool: AnalysisTool = typer.Option(AnalysisTool.SEMGREP.value, "--analysis-tool", "-a", help="Static analysis tool to use for evaluation (e.g., codeql, semgrep, all)"),
+    no_tests: bool = typer.Option(False, "--no-tests", help="Disable test generation and validation"),
+    max_test_retries: int = typer.Option(3, "--max-test-retries", help="Max code generation retries when tests fail"),
+    retry_strategy: RetryStrategy = typer.Option(RetryStrategy.REPAIR.value, "--retry-strategy", "-s", help="Retry strategy: 'repair' feeds errors back to LLM, 'regenerate' generates from scratch"),
 ):
     """Generate scenarios that induce vulnerabilities in LLM-generated code.
     """
@@ -242,7 +326,10 @@ def generate(
         output_dir=output_dir,
         api_key=api_key or os.getenv("LLM_API_KEY"),
         api_base=api_base or os.getenv("LLM_API_BASE"),
-        analysis_tool=analysis_tool
+        analysis_tool=analysis_tool,
+        enable_tests=not no_tests,
+        max_test_retries=max_test_retries,
+        retry_strategy=retry_strategy,
     )
 
     configure_logging(config.verbose)
@@ -253,37 +340,70 @@ def generate(
 @app.command()
 def generate_stats(filepath: Path = typer.Argument(..., help="Path to the JSONL file with generation results")):
     """Generate statistics from the results JSONL file."""
-    # This function can be implemented to read the output JSONL and compute various statistics
-    
-    data = jsonlines.open(filepath)
+
     total_cwes = 0
     total_scenarios = 0
     total_vulnerabilities = 0
-    cwe_vulnerability_counts = {}
-    cwe_scenario_counts = {}
-    cwe_scenarios_with_vulnerabilities = {}
+    total_tests_run = 0
+    total_tests_passed = 0
+    # Per-CWE stats: {cwe_id: {scenarios, vulns, scenarios_with_vulns, tests_run, tests_passed}}
+    cwe_stats: Dict[int, Dict[str, int]] = {}
 
-    for record in data:
-        cwe_id = record['cwe_id']
-        scenarios = record['samples']
-        vulnerabilities_in_cwe = sum(len(sample['evaluation']) for sample in scenarios if sample['evaluation'])
-        total_vulnerabilities += vulnerabilities_in_cwe
-        total_scenarios += len(scenarios)
-        total_cwes += 1
-        cwe_vulnerability_counts[cwe_id] = vulnerabilities_in_cwe
-        cwe_scenario_counts[cwe_id] = len(scenarios)
-        cwe_scenarios_with_vulnerabilities[cwe_id] = sum(1 for sample in scenarios if sample['evaluation'] and len(sample['evaluation']) > 0)
+    with jsonlines.open(filepath) as reader:
+        for record in reader:
+            cwe_id = record['cwe_id']
+            samples = record['samples']
+            total_cwes += 1
+            total_scenarios += len(samples)
+
+            vulns = sum(len(s['evaluation']) for s in samples if s.get('evaluation'))
+            scenarios_with_vulns = sum(1 for s in samples if s.get('evaluation') and len(s['evaluation']) > 0)
+            total_vulnerabilities += vulns
+
+            tests_run = 0
+            tests_passed = 0
+            for s in samples:
+                tp = s.get("tests_passed")
+                if tp is not None:
+                    tests_run += 1
+                    total_tests_run += 1
+                    if tp:
+                        tests_passed += 1
+                        total_tests_passed += 1
+
+            cwe_stats[cwe_id] = {
+                'scenarios': len(samples),
+                'vulns': vulns,
+                'scenarios_with_vulns': scenarios_with_vulns,
+                'tests_run': tests_run,
+                'tests_passed': tests_passed,
+            }
+
+    # Overall summary
+    total_scenarios_with_vulns = sum(c['scenarios_with_vulns'] for c in cwe_stats.values())
+    vuln_rate = (total_scenarios_with_vulns / total_scenarios * 100) if total_scenarios > 0 else 0
 
     logger.info(f"Total CWEs: {total_cwes}")
     logger.info(f"Total scenarios: {total_scenarios}")
     logger.info(f"Total vulnerabilities found: {total_vulnerabilities}")
-    logger.info(f"Overall vulnerability rate: {(sum(cwe_scenarios_with_vulnerabilities.values())/total_scenarios)*100:.2f}%")
+    logger.info(f"Overall vulnerability rate: {total_scenarios_with_vulns}/{total_scenarios} ({vuln_rate:.2f}%)")
+    if total_tests_run > 0:
+        test_rate = total_tests_passed / total_tests_run * 100
+        logger.info(f"Test pass rate: {total_tests_passed}/{total_tests_run} ({test_rate:.2f}%)")
     logger.info("")
-    logger.info("Vulnerabilities found per CWE:")
-    for cwe_id, count in cwe_vulnerability_counts.items():
-        logger.info(f"  CWE-{cwe_id:3d}: {count:3d} ({(cwe_scenarios_with_vulnerabilities[cwe_id]/cwe_scenario_counts[cwe_id])*100:.2f}%)")
-    
-    logger.info("")
-    logger.info("Scenarios generated per CWE:")
-    for cwe_id, scenario_count in cwe_scenario_counts.items():
-        logger.info(f"  CWE-{cwe_id:3d}: {scenario_count} scenarios")
+
+    # Unified per-CWE table sorted by decreasing vulnerability rate
+    has_any_tests = total_tests_run > 0
+    sorted_cwes = sorted(
+        cwe_stats.items(),
+        key=lambda item: item[1]['scenarios_with_vulns'] / item[1]['scenarios'] if item[1]['scenarios'] > 0 else 0,
+        reverse=True,
+    )
+    logger.info("Per CWE (sorted by vulnerability rate):")
+    for cwe_id, c in sorted_cwes:
+        cwe_vuln_rate = (c['scenarios_with_vulns'] / c['scenarios'] * 100) if c['scenarios'] > 0 else 0
+        line = f"  CWE-{cwe_id:3d}: vulns {c['scenarios_with_vulns']:2d}/{c['scenarios']:<2d} ({cwe_vuln_rate:5.2f}%)"
+        if has_any_tests and c['tests_run'] > 0:
+            cwe_test_rate = c['tests_passed'] / c['tests_run'] * 100
+            line += f", tests {c['tests_passed']:2d}/{c['tests_run']:<2d} ({cwe_test_rate:5.2f}%)"
+        logger.info(line)
