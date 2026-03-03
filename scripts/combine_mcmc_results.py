@@ -42,6 +42,8 @@ results = {}
 success_count = 0
 failure_count = 0
 for i in data:
+    if i.get("record_type") == "config":
+        continue
     successes = []
     failures = []
     for success in i["mcmc_successes"]:

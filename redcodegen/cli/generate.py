@@ -13,7 +13,8 @@ from cwe2.database import Database
 from redcodegen.constants import CWE_TOP_25, create_lm
 from redcodegen.analyzers.common import AnalysisTool
 from redcodegen.config import GenerateConfig
-from redcodegen.cli.utils import configure_logging, append_to_jsonl, get_model_config
+from redcodegen.cli.common import is_data_record, read_config_record
+from redcodegen.cli.utils import configure_logging, append_to_jsonl, get_model_config, get_environment_info
 from redcodegen.cli.app import app
 
 def load_completed_cwes(output_path: Path) -> Set[int]:
@@ -33,6 +34,8 @@ def load_completed_cwes(output_path: Path) -> Set[int]:
     try:
         with jsonlines.open(output_path) as reader:
             for record in reader:
+                if not is_data_record(record):
+                    continue
                 if 'cwe_id' in record:
                     completed.add(record['cwe_id'])
         logger.info(f"Found {len(completed)} already-completed CWEs in {output_path}")
@@ -122,6 +125,18 @@ def generate_scenarios(config: GenerateConfig):
     output_path = output_dir / output_filename
 
     logger.info(f"Output will be saved to: {output_path.absolute()}")
+
+    # Write config record as the first line for fresh files
+    if not output_path.exists():
+        config_record = {
+            "record_type": "config",
+            "timestamp": datetime.datetime.utcnow().isoformat() + 'Z',
+            "config": config.to_record(),
+            "environment": get_environment_info(),
+        }
+        with jsonlines.open(output_path, mode='a') as writer:
+            writer.write(config_record)
+        logger.info("Wrote config record to output file")
 
     # Determine which CWEs to process
     if config.cwes:
@@ -359,8 +374,21 @@ def generate_stats(filepath: Path = typer.Argument(..., help="Path to the JSONL 
     total_vulnerabilities = 0
     cwe_stats: Dict[int, Dict[str, int]] = {}
 
+    # Display config info if present
+    config_rec = read_config_record(filepath)
+    if config_rec:
+        cfg = config_rec.get("config", {})
+        env = config_rec.get("environment", {})
+        logger.info(f"Run config: model={cfg.get('model')}, temperature={cfg.get('temperature')}, "
+                     f"rollouts={cfg.get('num_rollouts')}, analysis={cfg.get('analysis_tool')}")
+        logger.info(f"Environment: python={env.get('python_version')}, "
+                     f"package={env.get('package_version')}, git={env.get('git_commit')}")
+        logger.info("")
+
     with jsonlines.open(filepath) as reader:
         for record in reader:
+            if not is_data_record(record):
+                continue
             cwe_id = record['cwe_id']
             total_cwes += 1
 

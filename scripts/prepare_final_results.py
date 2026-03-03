@@ -54,7 +54,7 @@ def _normalize_record_samples(record):
     return samples
 
 with jsonlines.open(BASELINE, 'r') as data:
-    baseline = sum([_normalize_record_samples(i) for i in data], [])
+    baseline = sum([_normalize_record_samples(i) for i in data if i.get("record_type") != "config"], [])
     baseline_successes = [
         i for i in baseline if len(i["evaluation"]) == 0
     ]
@@ -62,11 +62,11 @@ with jsonlines.open(BASELINE, 'r') as data:
         i for i in baseline if len(i["evaluation"]) > 0
     ]
 with jsonlines.open(MCMC, 'r') as data:
-    mcmc = [i for i in data]
+    mcmc = [i for i in data if i.get("record_type") != "config"]
     mcmc_successes = sum([i["mcmc_successes"] for i in mcmc], [])
     mcmc_failures = sum([i["mcmc_failures"] for i in mcmc], [])
 with jsonlines.open(PROPOSAL, 'r') as data:
-    proposal = [i for i in data]
+    proposal = [i for i in data if i.get("record_type") != "config"]
     proposal_nominal = [i for i in proposal if i["goal"] == "nominal"]
     proposal_failure = [i for i in proposal if i["goal"] == "failure"]
 

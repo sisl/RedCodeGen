@@ -38,6 +38,8 @@ with jsonlines.open(DATA, 'r') as d:
 all_samples = []
 
 for i in data:
+    if i.get("record_type") == "config":
+        continue
     if "samples" in i:
         raw_samples = i["samples"]
     elif "scenarios" in i:

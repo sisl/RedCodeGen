@@ -48,3 +48,7 @@ class GenerateConfig(BaseConfig):
             raise ValueError(f"Invalid CWE value: {item}")
 
         return normalized
+
+    def to_record(self) -> dict:
+        """Serialize config for JSONL output, excluding secrets and internal fields."""
+        return self.model_dump(exclude={"api_key", "test_api_key", "api_base", "test_api_base", "verbose"})

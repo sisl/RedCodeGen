@@ -13,7 +13,7 @@ from loguru import logger
 
 from redcodegen.constants import create_lm
 from redcodegen.cli.app import app
-from redcodegen.cli.common import normalize_record_samples
+from redcodegen.cli.common import is_data_record, normalize_record_samples
 from redcodegen.cli.utils import LOG_FORMAT, configure_logging, get_model_config
 
 
@@ -228,7 +228,7 @@ def amplify(
     logger.info(f"Loading input from {input_path}")
     try:
         with jsonlines.open(input_path) as reader:
-            data = [record for record in reader]
+            data = [record for record in reader if is_data_record(record)]
     except Exception as e:
         logger.error(f"Failed to read input file: {e}")
         raise typer.Exit(code=1)

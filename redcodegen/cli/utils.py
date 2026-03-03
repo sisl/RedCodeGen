@@ -1,6 +1,9 @@
+import platform
+import subprocess
 import sys
 import jsonlines
 import dspy
+from importlib.metadata import version, PackageNotFoundError
 from typing import Dict, Any
 from pathlib import Path
 from loguru import logger
@@ -44,6 +47,31 @@ def append_to_jsonl(record: Dict[str, Any], output_path: Path):
     with jsonlines.open(output_path, mode='a') as writer:
         writer.write(record)
     logger.info(f"Saved CWE-{record['cwe_id']} to {output_path}")
+
+def get_environment_info() -> Dict[str, Any]:
+    """Collect environment metadata for reproducibility."""
+    # Package version
+    try:
+        pkg_version = version("redcodegen")
+    except PackageNotFoundError:
+        pkg_version = None
+
+    # Git commit (best-effort)
+    try:
+        git_commit = subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            stderr=subprocess.DEVNULL,
+            text=True,
+        ).strip()
+    except Exception:
+        git_commit = None
+
+    return {
+        "python_version": platform.python_version(),
+        "package_version": pkg_version,
+        "git_commit": git_commit,
+    }
+
 
 def get_model_config() -> Dict[str, Any]:
     """Extract model configuration from current DSPy settings.

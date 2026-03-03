@@ -27,6 +27,8 @@ def load_processed_proposals(output_path: Path) -> dict[str, Set[str]]:
     try:
         with jsonlines.open(output_path) as reader:
             for record in reader:
+                if record.get("record_type") == "config":
+                    continue
                 if 'type' in record and 'goal' in record:
                     processed[record['type']].add(record['goal'])
 
