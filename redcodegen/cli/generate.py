@@ -10,11 +10,10 @@ from typing import Set, List, Dict, Any
 import dspy
 from cwe2.database import Database
 from redcodegen.constants import CWE_TOP_25, create_lm
-
-
-from redcodegen.cli.app import app
+from redcodegen.analyzers.common import AnalysisTool
 from redcodegen.config import GenerateConfig
 from redcodegen.cli.utils import configure_logging, append_to_jsonl, get_model_config
+from redcodegen.cli.app import app
 
 def load_completed_cwes(output_path: Path) -> Set[int]:
     """Load CWE IDs that have already been processed.
@@ -95,7 +94,7 @@ def generate_scenarios(config: GenerateConfig):
 
     # Import generator and validator after configuring dspy
     from redcodegen.generator import run_cwe
-    from redcodegen.validator import evaluate
+    from redcodegen.analyzers.evaluate import evaluate
 
     # Construct output path
     output_dir = Path(config.output_dir)
@@ -173,7 +172,7 @@ def generate_scenarios(config: GenerateConfig):
             for i, code in enumerate(codes, 1):
                 logger.info(f"  Evaluating sample {i}/{len(codes)}...")
                 try:
-                    evaluation = evaluate(code)
+                    evaluation = evaluate(code, analysis_tool=config.analysis_tool)
                     evaluations.append(evaluation)
                     errors.append(None)
                     cwe_vulnerabilities += len(evaluation)
@@ -228,6 +227,7 @@ def generate(
     output_dir: str = typer.Option('./output', "--output", "-o", help="Output directory for generated scenarios"),
     api_key: str | None = typer.Option(None, "--api-key", help="API key for the LLM service"),
     api_base: str | None = typer.Option(None, "--api-base", help="Base URL for the LLM API"),
+    analysis_tool: AnalysisTool = typer.Option(AnalysisTool.SEMGREP.value, "--analysis-tool", "-a", help="Static analysis tool to use for evaluation (e.g., codeql, semgrep, all)")
 ):
     """Generate scenarios that induce vulnerabilities in LLM-generated code.
     """
@@ -242,6 +242,7 @@ def generate(
         output_dir=output_dir,
         api_key=api_key or os.getenv("LLM_API_KEY"),
         api_base=api_base or os.getenv("LLM_API_BASE"),
+        analysis_tool=analysis_tool
     )
 
     configure_logging(config.verbose)
