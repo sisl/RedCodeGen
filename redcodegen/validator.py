@@ -124,6 +124,40 @@ def _cleanup(*paths: Path):
                 logger.warning(f"Failed to cleanup {path}: {e}")
 
 
+def _run_codeql_subprocess(cmd: list[str], step_name: str) -> subprocess.CompletedProcess:
+    """Run a CodeQL subprocess, logging full output on failure."""
+    try:
+        return subprocess.run(
+            cmd,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except subprocess.CalledProcessError as exc:
+        logger.debug(
+            "CodeQL {} failed (rc={})\n--- stdout ---\n{}\n--- stderr ---\n{}",
+            step_name, exc.returncode,
+            exc.stdout or "<empty>",
+            exc.stderr or "<empty>",
+        )
+        raise
+
+
+def _write_cmake_build_files(source_root: Path) -> None:
+    """Write a minimal CMakeLists.txt so CodeQL can trace a C/C++ build."""
+    c_files = list(source_root.glob("*.c")) + list(source_root.glob("*.cpp"))
+    if not c_files:
+        return
+
+    sources = " ".join(f.name for f in c_files)
+    cmake_content = (
+        "cmake_minimum_required(VERSION 3.10)\n"
+        "project(codeql_analysis C)\n"
+        f"add_library(analysis_target OBJECT {sources})\n"
+    )
+    (source_root / "CMakeLists.txt").write_text(cmake_content, encoding="utf-8")
+
+
 def _run_codeql_analysis(source_root: Path, workdir: Path, language: str = DEFAULT_LANGUAGE) -> List[Dict[str, Any]]:
     """Run CodeQL analysis for a source root and return parsed SARIF findings."""
     lang_config = get_language_config(language)
@@ -142,24 +176,30 @@ def _run_codeql_analysis(source_root: Path, workdir: Path, language: str = DEFAU
     sarif_file.close()
 
     try:
+        # C/C++ requires a traced build for CodeQL
+        if lang_config.codeql_language == "cpp":
+            _write_cmake_build_files(source_root)
+
+        create_cmd = [
+            codeql_bin,
+            "database",
+            "create",
+            str(db_dir),
+            f"--language={lang_config.codeql_language}",
+            f"--source-root={source_root}",
+            "--overwrite",
+        ]
+        if lang_config.codeql_language == "cpp":
+            build_dir = source_root / "_build"
+            create_cmd.append(
+                f"--command=cmake -S {source_root} -B {build_dir} && cmake --build {build_dir}"
+            )
+
         logger.debug(f"Creating CodeQL database in {db_dir} from {source_root}")
-        subprocess.run(
-            [
-                codeql_bin,
-                "database",
-                "create",
-                str(db_dir),
-                f"--language={lang_config.codeql_language}",
-                f"--source-root={source_root}",
-                "--overwrite"
-            ],
-            check=True,
-            capture_output=True,
-            text=True
-        )
+        _run_codeql_subprocess(create_cmd, "database create")
 
         logger.debug("Analyzing CodeQL database")
-        subprocess.run(
+        _run_codeql_subprocess(
             [
                 codeql_bin,
                 "database",
@@ -168,11 +208,9 @@ def _run_codeql_analysis(source_root: Path, workdir: Path, language: str = DEFAU
                 lang_config.codeql_queries,
                 "--format=sarif-latest",
                 f"--output={sarif_path}",
-                "--download"
+                "--download",
             ],
-            check=True,
-            capture_output=True,
-            text=True
+            "database analyze",
         )
 
         vulnerabilities = _parse_sarif(sarif_path)
