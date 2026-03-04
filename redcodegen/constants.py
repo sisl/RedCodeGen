@@ -92,7 +92,7 @@ def _resolve_server_model_id(model_name: str, api_base: str, api_key: str | None
             return match
     return model_name
 
-def create_lm(model_name="openai/gpt-4o-mini", temperature=0.8, api_key=None, api_base=None):
+def create_lm(model_name="openai/gpt-4o-mini", temperature=0.8, api_key=None, api_base=None, reasoning_effort=None):
     """Create a DSPy language model instance.
 
     Args:
@@ -125,12 +125,17 @@ def create_lm(model_name="openai/gpt-4o-mini", temperature=0.8, api_key=None, ap
         configured_model = normalized_model
     logger.info(f"Configured model: {configured_model}")
 
+    extra_kwargs = {}
+    if reasoning_effort is not None:
+        extra_kwargs["reasoning_effort"] = reasoning_effort
+
     if normalized_api_base is None:
         return dspy.LM(
             normalized_model,
             api_key=api_key,
             temperature=temperature,
-            max_tokens=16000
+            max_tokens=16000,
+            **extra_kwargs,
         )
     else:
         return dspy.LM(
@@ -138,7 +143,8 @@ def create_lm(model_name="openai/gpt-4o-mini", temperature=0.8, api_key=None, ap
             api_key=api_key,
             api_base=normalized_api_base,
             temperature=temperature,
-            max_tokens=16000
+            max_tokens=16000,
+            **extra_kwargs,
         )
 
 SCENARIO_EXAMPLES = [

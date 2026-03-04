@@ -9,6 +9,7 @@ class BaseConfig(BaseModel):
 class GenerateConfig(BaseConfig):
     model: str = "openai/gpt-4o-mini"
     temperature: float = 0.8
+    reasoning_effort: str | None = None
     cwes: list[int] = []
     use_top_25: bool = False
     min_samples: int = 3
@@ -20,6 +21,21 @@ class GenerateConfig(BaseConfig):
     test_api_key: str | None = None
     test_api_base: str | None = None
     num_rollouts: int = 10
+
+    @field_validator("reasoning_effort", mode="before")
+    @classmethod
+    def normalize_reasoning_effort(cls, value):
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            raise ValueError(f"reasoning_effort must be a string, got {type(value).__name__}")
+        normalized = value.strip().lower()
+        if normalized in ("none", "null", ""):
+            return None
+        allowed = ("low", "medium", "high")
+        if normalized not in allowed:
+            raise ValueError(f"reasoning_effort must be one of {allowed}, got '{value}'")
+        return normalized
 
     @field_validator("cwes", mode="before")
     @classmethod

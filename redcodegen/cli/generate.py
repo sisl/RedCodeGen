@@ -97,6 +97,7 @@ def generate_scenarios(config: GenerateConfig):
         temperature=config.temperature,
         api_key=config.api_key,
         api_base=config.api_base,
+        reasoning_effort=config.reasoning_effort,
     )
     dspy.configure(lm=code_lm)
 
@@ -121,7 +122,8 @@ def generate_scenarios(config: GenerateConfig):
 
     temperature_str = f't{config.temperature}'.replace('.', 'p')
     model_str = config.model.split('/')[-1].replace('-', '_')
-    output_filename = f"generated_scenarios_{model_str}_{temperature_str}_n{config.min_samples}_k{config.num_rollouts}.jsonl"
+    re_suffix = f"_re{config.reasoning_effort}" if config.reasoning_effort else ""
+    output_filename = f"generated_scenarios_{model_str}_{temperature_str}_n{config.min_samples}_k{config.num_rollouts}{re_suffix}.jsonl"
     output_path = output_dir / output_filename
 
     logger.info(f"Output will be saved to: {output_path.absolute()}")
@@ -333,6 +335,7 @@ def generate(
     test_api_key: str | None = typer.Option(None, "--test-api-key", help="API key for the test model (defaults to --api-key)"),
     test_api_base: str | None = typer.Option(None, "--test-api-base", help="Base URL for the test model API (defaults to --api-base)"),
     analysis_tool: AnalysisTool = typer.Option(AnalysisTool.SEMGREP.value, "--analysis-tool", "-a", help="Static analysis tool to use for evaluation (e.g., codeql, semgrep, all)"),
+    reasoning_effort: str | None = typer.Option(None, "--reasoning-effort", help="Reasoning effort for code model (low, medium, high)"),
 ):
     """Generate scenarios that induce vulnerabilities in LLM-generated code.
 
@@ -356,6 +359,7 @@ def generate(
         test_api_key=test_api_key or os.getenv("TEST_LLM_API_KEY"),
         test_api_base=test_api_base or os.getenv("TEST_LLM_API_BASE"),
         analysis_tool=analysis_tool,
+        reasoning_effort=reasoning_effort,
     )
 
     configure_logging(config.verbose)

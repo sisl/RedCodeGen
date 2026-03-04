@@ -11,3 +11,4 @@ test_model: "openai/gpt-5.3-codex"
 test_api_key: null
 test_api_base: null
 num_rollouts: 10
+reasoning_effort: null
