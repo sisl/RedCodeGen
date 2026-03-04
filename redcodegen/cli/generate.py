@@ -190,7 +190,7 @@ def generate_scenarios(config: GenerateConfig):
             # Generate scenarios using test_lm
             logger.info(f"  Generating {config.min_samples} scenario(s) using test model...")
             with dspy.settings.context(lm=test_lm):
-                scenario_data = gen_scenarios(cwe_id, min_scenarios=config.min_samples)
+                scenario_data = gen_scenarios(cwe_id, min_scenarios=config.min_samples, language=config.language)
             scenarios = scenario_data["scenarios"]
 
             scenario_results = []

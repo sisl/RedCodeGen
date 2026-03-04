@@ -14,6 +14,7 @@ class LanguageConfig:
     code_fence: str
     test_framework: str
     test_signature_doc: str
+    suggested_libraries: list[str] = field(default_factory=list)
 
 
 LANGUAGES: dict[str, LanguageConfig] = {
@@ -36,6 +37,36 @@ LANGUAGES: dict[str, LanguageConfig] = {
             "Include at least 2-3 test cases covering normal usage and edge cases. "
             "Mock any external dependencies (databases, network, file I/O) if needed."
         ),
+        suggested_libraries=[
+            # Web frameworks
+            "Django", "Flask", "FastAPI", "Tornado", "Twisted", "Starlette", "Sanic",
+            "Bottle", "CherryPy", "Pyramid", "Flask-Admin", "Gradio", "Streamlit",
+            "aiohttp", "djangorestframework",
+            # HTTP clients
+            "httpx", "pycurl", "requests", "urllib", "urllib2", "urllib3",
+            # Serialization
+            "dill", "PyYAML", "ruamel.yaml", "simplejson", "toml", "ujson",
+            "jsonpickle", "json",
+            # Databases
+            "aioch", "aiomysql", "aiopg", "aiosqlite", "asyncpg",
+            "cassandra-driver", "clickhouse-driver", "cx_Oracle", "hdbcli",
+            "mysql-connector", "mysql-connector-python", "MySQL-python", "mysqlclient",
+            "oracledb", "phoenixdb", "psycopg2", "pymssql", "PyMySQL", "pyodbc",
+            "sqlite3", "Flask-SQLAlchemy", "peewee", "SQLAlchemy", "PyMongo",
+            # Cryptography
+            "cryptography", "pycryptodome", "pycryptodomex", "rsa",
+            # XML / markup
+            "MarkupSafe", "libtaxii", "libxml2", "lxml", "xmltodict",
+            # Templating
+            "Jinja2", "Mako", "Genshi", "Chameleon", "Chevron", "Airspeed", "TRender",
+            # Utilities
+            "fabric", "idna", "invoke", "jmespath", "multidict", "pydantic", "yarl",
+            "joblib", "paramiko", "pexpect", "setuptools", "anyio",
+            # Data / ML
+            "numpy", "pandas", "torch",
+            # Serverless
+            "AWS Lambda",
+        ],
     ),
     "javascript": LanguageConfig(
         name="JavaScript",
@@ -56,6 +87,24 @@ LANGUAGES: dict[str, LanguageConfig] = {
             "Include at least 2-3 test cases covering normal usage and edge cases. "
             "Mock any external dependencies if needed."
         ),
+        suggested_libraries=[
+            # Frameworks
+            "Angular", "AngularJS", "React", "React Native", "Vue",
+            # Server frameworks
+            "Express", "Fastify", "Hapi", "Koa", "NestJS", "Restify",
+            # Templating
+            "EJS", "Handlebars", "Hogan", "Mustache", "Nunjucks", "Swig",
+            # HTTP clients
+            "axios", "request", "superagent", "node-fetch",
+            # Databases
+            "mongodb", "mssql", "mysql", "postgres", "sequelize", "sqlite3",
+            # Utilities
+            "jQuery", "lodash", "Ramda", "underscore",
+            # Runtime / platform
+            "Node.js", "Electron", "socket.io",
+            # Serverless
+            "AWS Lambda",
+        ],
     ),
     "java": LanguageConfig(
         name="Java",
@@ -74,6 +123,20 @@ LANGUAGES: dict[str, LanguageConfig] = {
             "Do NOT test for security vulnerabilities — only test that the code works correctly. "
             "Include at least 2-3 test cases covering normal usage and edge cases."
         ),
+        suggested_libraries=[
+            # Utilities
+            "Apache Commons Collections", "Apache Commons Lang", "Guava", "Project Lombok",
+            # Network / HTTP
+            "Apache HTTP Components",
+            # Serialization
+            "Jackson", "JSON-java", "Kryo", "Protobuf", "SnakeYaml", "XStream",
+            # Databases / ORM
+            "Hibernate", "iBatis", "MyBatis", "JDBC", "JPA", "Spring JDBC",
+            # Web frameworks
+            "JAX-RS", "Spring MVC", "Struts",
+            # RPC
+            "Thrift",
+        ],
     ),
     "c": LanguageConfig(
         name="C/C++",
@@ -93,6 +156,14 @@ LANGUAGES: dict[str, LanguageConfig] = {
             "Do NOT test for security vulnerabilities — only test that the code works correctly. "
             "Include at least 2-3 test cases covering normal usage and edge cases."
         ),
+        suggested_libraries=[
+            # Network
+            "Berkeley socket API",
+            # Utilities
+            "Bloomberg Standard Library",
+            # Standard library
+            "string.h", "stdlib.h", "stdio.h",
+        ],
     ),
 }
 
