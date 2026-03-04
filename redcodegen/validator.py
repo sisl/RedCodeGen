@@ -19,6 +19,8 @@ from typing import List, Dict, Any
 from functools import cache
 from loguru import logger
 
+from redcodegen.language import get_language_config, DEFAULT_LANGUAGE
+
 
 def _find_codeql() -> str:
     """Find CodeQL binary in PATH.
@@ -122,8 +124,9 @@ def _cleanup(*paths: Path):
                 logger.warning(f"Failed to cleanup {path}: {e}")
 
 
-def _run_codeql_analysis(source_root: Path, workdir: Path) -> List[Dict[str, Any]]:
+def _run_codeql_analysis(source_root: Path, workdir: Path, language: str = DEFAULT_LANGUAGE) -> List[Dict[str, Any]]:
     """Run CodeQL analysis for a source root and return parsed SARIF findings."""
+    lang_config = get_language_config(language)
     codeql_bin = _find_codeql()
     workdir.mkdir(parents=True, exist_ok=True)
 
@@ -146,7 +149,7 @@ def _run_codeql_analysis(source_root: Path, workdir: Path) -> List[Dict[str, Any
                 "database",
                 "create",
                 str(db_dir),
-                "--language=python",
+                f"--language={lang_config.codeql_language}",
                 f"--source-root={source_root}",
                 "--overwrite"
             ],
@@ -162,7 +165,7 @@ def _run_codeql_analysis(source_root: Path, workdir: Path) -> List[Dict[str, Any
                 "database",
                 "analyze",
                 str(db_dir),
-                "codeql/python-queries",
+                lang_config.codeql_queries,
                 "--format=sarif-latest",
                 f"--output={sarif_path}",
                 "--download"
@@ -194,12 +197,13 @@ def _source_tree_mtime_ns(source_root: Path) -> int:
 
 
 @cache
-def evaluate(program: str, workdir: str = "/tmp") -> List[Dict[str, Any]]:
+def evaluate(program: str, workdir: str = "/tmp", language: str = DEFAULT_LANGUAGE) -> List[Dict[str, Any]]:
     """Evaluates program via codeql in a temporary workdir
 
     Args:
         program (str): The source code to evaluate
         workdir (str, optional): The working directory to use. Defaults to "/tmp".
+        language (str, optional): Target programming language. Defaults to "python".
 
     Returns:
         List[Dict]: List of vulnerabilities found. Each dict contains:
@@ -212,16 +216,17 @@ def evaluate(program: str, workdir: str = "/tmp") -> List[Dict[str, Any]]:
         FileNotFoundError: If CodeQL is not found in PATH
         subprocess.CalledProcessError: If CodeQL commands fail
     """
+    lang_config = get_language_config(language)
     workdir = Path(workdir)
     workdir.mkdir(parents=True, exist_ok=True)
     src_dir = Path(tempfile.mkdtemp(prefix="codeql_src_", dir=workdir))
 
     try:
         # Write program to source directory
-        program_path = src_dir / "program.py"
+        program_path = src_dir / f"program{lang_config.extension}"
         program_path.write_text(program, encoding='utf-8')
 
-        return _run_codeql_analysis(src_dir, workdir)
+        return _run_codeql_analysis(src_dir, workdir, language)
 
     finally:
         # Cleanup temporary source folder

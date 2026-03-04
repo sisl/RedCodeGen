@@ -6,6 +6,7 @@ from typing import List, Dict, Any
 from loguru import logger
 
 from .common import _cleanup, _parse_sarif, AnalysisTool
+from redcodegen.language import get_language_config, DEFAULT_LANGUAGE
 
 def _find_codeql() -> str:
     """Find CodeQL binary in PATH.
@@ -23,8 +24,9 @@ def _find_codeql() -> str:
         )
     return codeql_path
 
-def _run_codeql_analysis(source_root: Path, workdir: Path) -> List[Dict[str, Any]]:
+def _run_codeql_analysis(source_root: Path, workdir: Path, language: str = DEFAULT_LANGUAGE) -> List[Dict[str, Any]]:
     """Run CodeQL analysis for a source root and return parsed SARIF findings."""
+    lang_config = get_language_config(language)
     codeql_bin = _find_codeql()
     workdir.mkdir(parents=True, exist_ok=True)
 
@@ -47,7 +49,7 @@ def _run_codeql_analysis(source_root: Path, workdir: Path) -> List[Dict[str, Any
                 "database",
                 "create",
                 str(db_dir),
-                "--language=python",
+                f"--language={lang_config.codeql_language}",
                 f"--source-root={source_root}",
                 "--overwrite"
             ],
@@ -63,7 +65,7 @@ def _run_codeql_analysis(source_root: Path, workdir: Path) -> List[Dict[str, Any
                 "database",
                 "analyze",
                 str(db_dir),
-                "codeql/python-queries",
+                lang_config.codeql_queries,
                 "--format=sarif-latest",
                 f"--output={sarif_path}",
                 "--download"

@@ -10,6 +10,7 @@ class GenerateConfig(BaseConfig):
     model: str = "openai/gpt-4o-mini"
     temperature: float = 0.8
     reasoning_effort: str | None = None
+    language: str = "python"
     cwes: list[int] = []
     use_top_25: bool = False
     min_samples: int = 3

@@ -28,6 +28,7 @@ from rich.text import Text
 
 from redcodegen.cli.app import app
 from redcodegen.cli.common import read_config_record, read_data_records
+from redcodegen.language import get_language_config, DEFAULT_LANGUAGE
 
 
 # ---------------------------------------------------------------------------
@@ -392,18 +393,20 @@ class SavePairScreen(ModalScreen[str | None]):
 
     BINDINGS = [Binding("escape", "cancel", "Cancel")]
 
-    def __init__(self, default_dir: str, code: str, tests: str) -> None:
+    def __init__(self, default_dir: str, code: str, tests: str, solution_file: str = "solution.py", test_file: str = "test_solution.py") -> None:
         super().__init__()
         self._default_dir = default_dir
         self._code = code
         self._tests = tests
+        self._solution_file = solution_file
+        self._test_file = test_file
 
     def compose(self) -> ComposeResult:
         with Vertical(id="save-pair-dialog"):
             yield Label("Save pair to directory:")
             yield Input(value=self._default_dir, id="save-pair-input")
             yield Label(
-                "Writes solution.py and test_solution.py",
+                f"Writes {self._solution_file} and {self._test_file}",
                 classes="hint-label",
             )
 
@@ -417,8 +420,8 @@ class SavePairScreen(ModalScreen[str | None]):
             try:
                 d = Path(dirpath)
                 d.mkdir(parents=True, exist_ok=True)
-                (d / "solution.py").write_text(self._code)
-                (d / "test_solution.py").write_text(self._tests)
+                (d / self._solution_file).write_text(self._code)
+                (d / self._test_file).write_text(self._tests)
                 self.dismiss(dirpath)
             except OSError as e:
                 self.app.notify(f"Error saving: {e}", severity="error")
@@ -633,6 +636,17 @@ class ExploreApp(App[None]):
         self._file_path = file_path
         self._sort_column: object = None
         self._sort_reverse: bool = False
+        # Detect language from config record, default to python
+        self._language = DEFAULT_LANGUAGE
+        if config:
+            cfg = config.get("config", {})
+            lang = cfg.get("language")
+            if lang:
+                self._language = lang
+        try:
+            self._lang_config = get_language_config(self._language)
+        except ValueError:
+            self._lang_config = get_language_config(DEFAULT_LANGUAGE)
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -838,7 +852,7 @@ class ExploreApp(App[None]):
             container.mount(Static("Tests:", classes="detail-section"))
             code_area = TextArea(
                 scenario.tests,
-                language="python",
+                language=self._lang_config.code_fence,
                 theme="monokai",
                 show_line_numbers=True,
                 read_only=True,
@@ -917,7 +931,7 @@ class ExploreApp(App[None]):
         container.mount(Static("Code:", classes="detail-section"))
         code_area = TextArea(
             rollout.code,
-            language="python",
+            language=self._lang_config.code_fence,
             theme="monokai",
             show_line_numbers=True,
             read_only=True,
@@ -1018,8 +1032,9 @@ class ExploreApp(App[None]):
             self.notify("No node selected", severity="warning")
             return
 
+        ext = self._lang_config.extension
         content: str | None = None
-        default_name = "output.py"
+        default_name = f"output{ext}"
 
         if data.kind == NodeKind.ROLLOUT:
             cwe = self._cwes[data.cwe_idx]  # type: ignore[index]
@@ -1028,7 +1043,7 @@ class ExploreApp(App[None]):
             content = rollout.code
             default_name = (
                 f"cwe{cwe.cwe_id}_s{data.scenario_idx + 1}"  # type: ignore[operator]
-                f"_r{data.rollout_idx + 1}.py"  # type: ignore[operator]
+                f"_r{data.rollout_idx + 1}{ext}"  # type: ignore[operator]
             )
         elif data.kind == NodeKind.SCENARIO:
             cwe = self._cwes[data.cwe_idx]  # type: ignore[index]
@@ -1036,7 +1051,7 @@ class ExploreApp(App[None]):
             if scenario.tests:
                 content = scenario.tests
                 default_name = (
-                    f"cwe{cwe.cwe_id}_s{data.scenario_idx + 1}_tests.py"  # type: ignore[operator]
+                    f"cwe{cwe.cwe_id}_s{data.scenario_idx + 1}_tests{ext}"  # type: ignore[operator]
                 )
             else:
                 self.notify("No tests to save for this scenario", severity="warning")
@@ -1070,14 +1085,18 @@ class ExploreApp(App[None]):
             f"_r{data.rollout_idx + 1}"  # type: ignore[operator]
         )
 
+        solution_file = self._lang_config.solution_file
+        test_file = self._lang_config.test_file
+
         def on_dismiss(result: str | None) -> None:
             if result:
                 self.notify(f"Saved pair to {result}/")
-                cmd = f"pytest {result}/test_solution.py -v"
+                test_runner = " ".join(self._lang_config.test_runner)
+                cmd = f"{test_runner} {result}/{test_file}"
                 self.push_screen(PytestCommandScreen(cmd))
 
         self.push_screen(
-            SavePairScreen(default_dir, rollout.code, scenario.tests),
+            SavePairScreen(default_dir, rollout.code, scenario.tests, solution_file, test_file),
             on_dismiss,
         )
 

@@ -59,12 +59,13 @@ class ProposalDistribution:
     def device(self):
         return next(self.model.parameters()).device
 
-    def generate(self, request: GenerateRequest):
+    def generate(self, request: GenerateRequest, language: str = "python"):
         """Get a prompt from this proposal distribution following the spec."""
 
         task = self.__format_task(
             type=request.failure_type,
-            vulnerability_prob=request.goal
+            vulnerability_prob=request.goal,
+            language=language,
         )
         task = self.tokenizer(
             [task],

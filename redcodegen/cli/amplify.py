@@ -94,6 +94,7 @@ def process_scenario_worker(
     temperature: float,
     log_level: str,
     reasoning_effort: str | None = None,
+    language: str = "python",
 ):
     """Worker function that pulls tasks from queue and processes them."""
     # Import here to avoid issues with multiprocessing
@@ -138,6 +139,7 @@ def process_scenario_worker(
                 find_failure=False,
                 threshold=variance_threshold,
                 symmetric=True,
+                language=language,
             )[1:]  # crop seed
 
             # Run MCMC for failures (find vulnerable prompts)
@@ -149,6 +151,7 @@ def process_scenario_worker(
                 find_failure=True,
                 threshold=variance_threshold,
                 symmetric=True,
+                language=language,
             )[1:]  # crop seed
 
             # Build record
@@ -194,6 +197,7 @@ def file_writer_worker(write_queue, output_path: Path, total_scenarios: int):
 
 @app.command()
 def amplify(
+    ctx: typer.Context,
     input_file: Path = typer.Option(..., "--input", "-i", help="Input JSONL file from generate command"),
     output: Path = typer.Option(..., "--output", "-o", help="Output JSONL file for amplified results"),
     mcmc_steps: int = typer.Option(16, "--mcmc-steps", help="Number of MCMC turns"),
@@ -214,6 +218,9 @@ def amplify(
     that both succeed (safe code) and fail (vulnerable code).
     """
     configure_logging(verbose)
+
+    ctx.ensure_object(dict)
+    language = ctx.obj.get("language", "python")
 
     resolved_api_key = api_key or os.getenv("OPENAI_API_KEY")
     resolved_api_base = api_base or os.getenv("OPENAI_API_BASE")
@@ -335,6 +342,7 @@ def amplify(
                 temperature,
                 log_level,
                 reasoning_effort,
+                language,
             )
 
             # Use apply_async to start workers that will process tasks from queue
