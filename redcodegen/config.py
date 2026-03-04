@@ -32,7 +32,7 @@ class GenerateConfig(BaseConfig):
         normalized = value.strip().lower()
         if normalized in ("none", "null", ""):
             return None
-        allowed = ("low", "medium", "high")
+        allowed = ("low", "medium", "high", "xhigh")
         if normalized not in allowed:
             raise ValueError(f"reasoning_effort must be one of {allowed}, got '{value}'")
         return normalized
@@ -67,4 +67,4 @@ class GenerateConfig(BaseConfig):
 
     def to_record(self) -> dict:
         """Serialize config for JSONL output, excluding secrets and internal fields."""
-        return self.model_dump(exclude={"api_key", "test_api_key", "api_base", "test_api_base", "verbose"})
+        return self.model_dump(mode="json", exclude={"api_key", "test_api_key", "api_base", "test_api_base", "verbose"})

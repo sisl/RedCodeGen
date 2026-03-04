@@ -36,6 +36,22 @@ from redcodegen.cli.common import read_config_record, read_data_records
 
 
 @dataclass
+class TestResult:
+    __test__ = False  # prevent pytest collection
+    name: str
+    status: str  # "passed", "failed", "error", "skipped"
+
+
+@dataclass
+class TestDetails:
+    __test__ = False  # prevent pytest collection
+    num_tests: int
+    num_passed: int
+    num_failed: int
+    results: list[TestResult]
+
+
+@dataclass
 class Vulnerability:
     rule: str
     message: str
@@ -48,6 +64,7 @@ class Rollout:
     code: str
     passes_tests: bool | None
     vulnerabilities: list[Vulnerability]
+    test_details: TestDetails | None = None
 
 
 @dataclass
@@ -232,6 +249,26 @@ def _parse_vulnerabilities(raw: Any) -> list[Vulnerability]:
     ]
 
 
+def _parse_test_details(raw: Any) -> TestDetails | None:
+    """Parse test_details from a rollout dict. Returns None if absent/invalid."""
+    if not isinstance(raw, dict):
+        return None
+    try:
+        results = [
+            TestResult(name=r.get("name", ""), status=r.get("status", "unknown"))
+            for r in raw.get("results", [])
+            if isinstance(r, dict)
+        ]
+        return TestDetails(
+            num_tests=int(raw.get("num_tests", 0)),
+            num_passed=int(raw.get("num_passed", 0)),
+            num_failed=int(raw.get("num_failed", 0)),
+            results=results,
+        )
+    except (TypeError, ValueError):
+        return None
+
+
 def _load_record_new_format(record: dict[str, Any]) -> CWERecord:
     """Load a record in the new scenarios/rollouts format."""
     scenarios = []
@@ -244,6 +281,9 @@ def _load_record_new_format(record: dict[str, Any]) -> CWERecord:
                     passes_tests=ro.get("passes_tests"),
                     vulnerabilities=_parse_vulnerabilities(
                         ro.get("vulnerabilities")
+                    ),
+                    test_details=_parse_test_details(
+                        ro.get("test_details")
                     ),
                 )
             )
@@ -525,10 +565,18 @@ class ExploreApp(App[None]):
                 )
                 for ri, rollout in enumerate(scenario.rollouts):
                     nv = len(rollout.vulnerabilities)
-                    label_text = (
-                        f"R{ri + 1}: {nv} "
-                        f"vulnerabilit{'y' if nv == 1 else 'ies'}"
-                    )
+                    td = rollout.test_details
+                    if td is not None:
+                        label_text = (
+                            f"R{ri + 1}: "
+                            f"{td.num_passed}/{td.num_tests} tests, "
+                            f"{nv} vuln{'s' if nv != 1 else ''}"
+                        )
+                    else:
+                        label_text = (
+                            f"R{ri + 1}: {nv} "
+                            f"vulnerabilit{'y' if nv == 1 else 'ies'}"
+                        )
                     if rollout.passes_tests is True:
                         color = "green"
                     elif rollout.passes_tests is False:
@@ -644,12 +692,17 @@ class ExploreApp(App[None]):
         cwe = self._cwes[cwe_idx]
         scenario = cwe.scenarios[scenario_idx]
 
-        container.mount(
-            Static(
-                f"CWE-{cwe.cwe_id} / Scenario {scenario_idx + 1}",
-                classes="detail-title",
-            )
-        )
+        # Build header with test count if available
+        header = f"CWE-{cwe.cwe_id} / Scenario {scenario_idx + 1}"
+        test_counts = [
+            r.test_details for r in scenario.rollouts if r.test_details is not None
+        ]
+        if test_counts:
+            # Use max num_tests across rollouts as the scenario's test count
+            n_tests = max(td.num_tests for td in test_counts)
+            header += f" ({n_tests} test{'s' if n_tests != 1 else ''})"
+
+        container.mount(Static(header, classes="detail-title"))
         container.mount(Static(scenario.description, classes="stats-label"))
 
         # Stats for this scenario
@@ -673,17 +726,22 @@ class ExploreApp(App[None]):
 
         # Rollout table
         table = DataTable()
-        table.add_columns("#", "Status", "Vulns", "Lines")
+        table.add_columns("#", "Status", "Passed", "Failed", "Vulns", "Lines")
         for ri, rollout in enumerate(scenario.rollouts):
             status = "?"
             if rollout.passes_tests is True:
                 status = "PASS"
             elif rollout.passes_tests is False:
                 status = "FAIL"
+            td = rollout.test_details
+            passed_str = str(td.num_passed) if td else "-"
+            failed_str = str(td.num_failed) if td else "-"
             line_count = rollout.code.count("\n") + 1
             table.add_row(
                 str(ri + 1),
                 status,
+                passed_str,
+                failed_str,
                 str(len(rollout.vulnerabilities)),
                 str(line_count),
             )
@@ -708,7 +766,13 @@ class ExploreApp(App[None]):
         )
 
         # Status summary
-        if rollout.passes_tests is True:
+        td = rollout.test_details
+        if td is not None:
+            test_status = (
+                f"Tests: {td.num_passed}/{td.num_tests} passed"
+                + (f", {td.num_failed} failed" if td.num_failed else "")
+            )
+        elif rollout.passes_tests is True:
             test_status = "Tests: PASS"
         elif rollout.passes_tests is False:
             test_status = "Tests: FAIL"
@@ -732,6 +796,24 @@ class ExploreApp(App[None]):
             classes="code-viewer",
         )
         container.mount(code_area)
+
+        # Per-test results table
+        if td is not None and td.results:
+            test_table = DataTable()
+            test_table.add_columns("Test", "Status")
+            for tr in td.results:
+                status_text = Text(
+                    tr.status.upper(),
+                    style="green" if tr.status == "passed" else "red",
+                )
+                test_table.add_row(tr.name, status_text)
+            container.mount(
+                Static(
+                    f"Test Results ({len(td.results)}):",
+                    classes="detail-section",
+                )
+            )
+            container.mount(test_table)
 
         # Vulnerability table
         if rollout.vulnerabilities:

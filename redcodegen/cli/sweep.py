@@ -48,7 +48,11 @@ def _load_runs_config(runs_config: Path) -> list[dict]:
             raise typer.BadParameter(f"runs[{idx}] must include 'overrides' as a list of Hydra override strings.")
         validated_runs.append(run)
 
-    return validated_runs
+    defaults = data.get("defaults", [])
+    if not isinstance(defaults, list) or not all(isinstance(d, str) for d in defaults):
+        raise typer.BadParameter("'defaults' must be a list of Hydra override strings.")
+
+    return validated_runs, defaults
 
 
 def _extract_run_overrides(run: dict) -> tuple[list[str], str]:
@@ -96,7 +100,7 @@ def generate(
 
     combinations = list(product(*axes)) if axes else [()]
 
-    runs = _load_runs_config(runs_config) if runs_config else []
+    runs, run_defaults = _load_runs_config(runs_config) if runs_config else ([], [])
 
     with initialize_config_dir(config_dir=config_path, version_base=None):
         for combo in combinations:
@@ -113,7 +117,7 @@ def generate(
 
             for run in runs:
                 run_overrides, run_name = _extract_run_overrides(run)
-                all_overrides = base_overrides + run_overrides
+                all_overrides = run_defaults + base_overrides + run_overrides
                 hydra_cfg = compose(config_name=config_name, overrides=all_overrides)
                 flat = OmegaConf.to_container(hydra_cfg, resolve=True)
                 run_flat = _maybe_apply_api_key_env(flat, run)

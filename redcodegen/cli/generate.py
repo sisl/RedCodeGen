@@ -74,6 +74,7 @@ def build_record(
                     {
                         "code": r["code"],
                         "passes_tests": r["passes_tests"],
+                        "test_details": r.get("test_details"),
                         "vulnerabilities": r["vulnerabilities"],
                     }
                     for r in sr["rollouts"]
@@ -219,9 +220,16 @@ def generate_scenarios(config: GenerateConfig):
                 # Evaluate rollouts in parallel (I/O-bound: tests + semgrep)
                 def _process_rollout(code):
                     passes_tests = None
+                    test_details = None
                     if test_code is not None:
                         test_result = run_tests(code, test_code)
                         passes_tests = test_result["passed"]
+                        test_details = {
+                            "num_tests": test_result["num_tests"],
+                            "num_passed": test_result["num_passed"],
+                            "num_failed": test_result["num_failed"],
+                            "results": test_result["test_results"],
+                        }
 
                     vulnerabilities = []
                     try:
@@ -232,6 +240,7 @@ def generate_scenarios(config: GenerateConfig):
                     return {
                         "code": code,
                         "passes_tests": passes_tests,
+                        "test_details": test_details,
                         "vulnerabilities": vulnerabilities,
                     }
 

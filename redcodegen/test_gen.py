@@ -34,6 +34,28 @@ def _strip_fences(text: str) -> str:
 # Matches pytest summary lines like "2 passed, 1 failed in 0.12s"
 _PYTEST_COUNT_RE = re.compile(r"(\d+) (passed|failed|error|skipped)")
 
+# Matches individual pytest -v result lines like:
+#   test_solution.py::test_name PASSED  [ 50%]
+#   test_solution.py::test_name[param] FAILED [ 100%]
+_PYTEST_RESULT_RE = re.compile(
+    r"^(.*?::(\S+))\s+(PASSED|FAILED|ERROR|SKIPPED)",
+    re.MULTILINE,
+)
+
+
+def _parse_test_results(stdout: str) -> list[dict]:
+    """Extract individual test outcomes from pytest -v stdout.
+
+    Returns a list of dicts like [{"name": "test_name", "status": "passed"}, ...].
+    """
+    results = []
+    for match in _PYTEST_RESULT_RE.finditer(stdout):
+        results.append({
+            "name": match.group(2),
+            "status": match.group(3).lower(),
+        })
+    return results
+
 
 def _parse_pytest_counts(stdout: str) -> dict:
     """Extract test counts from pytest stdout summary line."""
@@ -87,11 +109,13 @@ def run_tests(code: str, test_code: str, timeout: int = 30) -> dict:
             env={**__import__("os").environ, "PYTHONPATH": str(workdir)},
         )
         counts = _parse_pytest_counts(result.stdout)
+        test_results = _parse_test_results(result.stdout)
         return {
             "passed": result.returncode == 0,
             "stdout": result.stdout,
             "stderr": result.stderr,
             "error": None,
+            "test_results": test_results,
             **counts,
         }
     except subprocess.TimeoutExpired:
@@ -103,6 +127,7 @@ def run_tests(code: str, test_code: str, timeout: int = 30) -> dict:
             "num_tests": 0,
             "num_passed": 0,
             "num_failed": 0,
+            "test_results": [],
         }
     except Exception as e:
         return {
@@ -113,6 +138,7 @@ def run_tests(code: str, test_code: str, timeout: int = 30) -> dict:
             "num_tests": 0,
             "num_passed": 0,
             "num_failed": 0,
+            "test_results": [],
         }
     finally:
         _cleanup(workdir)
