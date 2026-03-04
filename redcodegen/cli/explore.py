@@ -387,6 +387,81 @@ class SaveScreen(ModalScreen[str | None]):
         self.dismiss(None)
 
 
+class SavePairScreen(ModalScreen[str | None]):
+    """Modal for saving code+test pair to a directory."""
+
+    BINDINGS = [Binding("escape", "cancel", "Cancel")]
+
+    def __init__(self, default_dir: str, code: str, tests: str) -> None:
+        super().__init__()
+        self._default_dir = default_dir
+        self._code = code
+        self._tests = tests
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="save-pair-dialog"):
+            yield Label("Save pair to directory:")
+            yield Input(value=self._default_dir, id="save-pair-input")
+            yield Label(
+                "Writes solution.py and test_solution.py",
+                classes="hint-label",
+            )
+
+    def on_mount(self) -> None:
+        self.query_one("#save-pair-input", Input).focus()
+
+    @on(Input.Submitted, "#save-pair-input")
+    def on_submit(self, event: Input.Submitted) -> None:
+        dirpath = event.value.strip()
+        if dirpath:
+            try:
+                d = Path(dirpath)
+                d.mkdir(parents=True, exist_ok=True)
+                (d / "solution.py").write_text(self._code)
+                (d / "test_solution.py").write_text(self._tests)
+                self.dismiss(dirpath)
+            except OSError as e:
+                self.app.notify(f"Error saving: {e}", severity="error")
+                self.dismiss(None)
+        else:
+            self.dismiss(None)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
+class PytestCommandScreen(ModalScreen[None]):
+    """Modal showing a copyable pytest command."""
+
+    BINDINGS = [
+        Binding("escape", "close", "Close"),
+        Binding("enter", "close", "Close"),
+    ]
+
+    def __init__(self, command: str) -> None:
+        super().__init__()
+        self._command = command
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="pytest-dialog"):
+            yield Label("Run tests with:")
+            yield Input(
+                value=self._command,
+                id="pytest-input",
+                select_on_focus=True,
+            )
+            yield Label(
+                "Press Escape or Enter to close",
+                classes="hint-label",
+            )
+
+    def on_mount(self) -> None:
+        self.query_one("#pytest-input", Input).focus()
+
+    def action_close(self) -> None:
+        self.dismiss(None)
+
+
 # ---------------------------------------------------------------------------
 # Tree widget with vim bindings
 # ---------------------------------------------------------------------------
@@ -471,7 +546,7 @@ APP_CSS = """
 
 .code-viewer {
     height: auto;
-    max-height: 20;
+    max-height: 50;
     margin-bottom: 1;
 }
 
@@ -483,7 +558,53 @@ DataTable {
     height: auto;
     max-height: 15;
 }
+
+#save-pair-dialog {
+    width: 60;
+    height: auto;
+    max-height: 12;
+    border: thick $accent;
+    background: $surface;
+    padding: 1 2;
+    align: center middle;
+}
+
+#save-pair-dialog Label {
+    margin-bottom: 1;
+}
+
+#pytest-dialog {
+    width: 80;
+    height: auto;
+    max-height: 10;
+    border: thick $accent;
+    background: $surface;
+    padding: 1 2;
+    align: center middle;
+}
+
+#pytest-dialog Label {
+    margin-bottom: 1;
+}
+
+.hint-label {
+    color: $text-muted;
+    text-style: italic;
+}
 """
+
+
+def _sort_key(value: object) -> tuple[int, float | str]:
+    """Sort key for DataTable cells: numeric values first, then strings."""
+    if isinstance(value, Text):
+        raw = value.plain
+    else:
+        raw = str(value)
+    raw = raw.strip().rstrip("%")
+    try:
+        return (0, float(raw))
+    except (ValueError, TypeError):
+        return (1, raw.lower())
 
 
 class ExploreApp(App[None]):
@@ -494,6 +615,7 @@ class ExploreApp(App[None]):
     BINDINGS = [
         Binding("q", "quit", "Quit"),
         Binding("s", "save", "Save"),
+        Binding("S", "save_pair", "Save pair"),
         Binding("question_mark", "help", "Help"),
         Binding("tab", "toggle_focus", "Focus"),
         Binding("escape", "focus_tree", "Tree", show=False),
@@ -509,6 +631,8 @@ class ExploreApp(App[None]):
         self._cwes = cwes
         self._config = config
         self._file_path = file_path
+        self._sort_column: object = None
+        self._sort_reverse: bool = False
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -715,6 +839,8 @@ class ExploreApp(App[None]):
             code_area = TextArea(
                 scenario.tests,
                 language="python",
+                theme="monokai",
+                show_line_numbers=True,
                 read_only=True,
                 classes="code-viewer",
             )
@@ -792,6 +918,8 @@ class ExploreApp(App[None]):
         code_area = TextArea(
             rollout.code,
             language="python",
+            theme="monokai",
+            show_line_numbers=True,
             read_only=True,
             classes="code-viewer",
         )
@@ -865,6 +993,17 @@ class ExploreApp(App[None]):
                 data.cwe_idx, data.scenario_idx, data.rollout_idx
             )
 
+    @on(DataTable.HeaderSelected)
+    def on_header_selected(self, event: DataTable.HeaderSelected) -> None:
+        table = event.data_table
+        col_key = event.column_key
+        if self._sort_column == col_key:
+            self._sort_reverse = not self._sort_reverse
+        else:
+            self._sort_column = col_key
+            self._sort_reverse = False
+        table.sort(col_key, key=_sort_key, reverse=self._sort_reverse)
+
     # ----- Actions -----
 
     def _get_current_node_data(self) -> NodeData | None:
@@ -912,6 +1051,36 @@ class ExploreApp(App[None]):
 
         self.push_screen(SaveScreen(default_name, content), on_dismiss)
 
+    def action_save_pair(self) -> None:
+        data = self._get_current_node_data()
+        if data is None or data.kind != NodeKind.ROLLOUT:
+            self.notify("Select a rollout to save pair", severity="warning")
+            return
+
+        cwe = self._cwes[data.cwe_idx]  # type: ignore[index]
+        scenario = cwe.scenarios[data.scenario_idx]  # type: ignore[index]
+        rollout = scenario.rollouts[data.rollout_idx]  # type: ignore[index]
+
+        if not scenario.tests:
+            self.notify("No tests available for this scenario", severity="warning")
+            return
+
+        default_dir = (
+            f"cwe{cwe.cwe_id}_s{data.scenario_idx + 1}"  # type: ignore[operator]
+            f"_r{data.rollout_idx + 1}"  # type: ignore[operator]
+        )
+
+        def on_dismiss(result: str | None) -> None:
+            if result:
+                self.notify(f"Saved pair to {result}/")
+                cmd = f"pytest {result}/test_solution.py -v"
+                self.push_screen(PytestCommandScreen(cmd))
+
+        self.push_screen(
+            SavePairScreen(default_dir, rollout.code, scenario.tests),
+            on_dismiss,
+        )
+
     def action_toggle_focus(self) -> None:
         tree = self.query_one("#nav-tree", CWETree)
         detail = self.query_one("#detail-pane", VerticalScroll)
@@ -926,7 +1095,8 @@ class ExploreApp(App[None]):
     def action_help(self) -> None:
         self.notify(
             "j/k: up/down | h/l: collapse/expand | "
-            "g/G: top/bottom | s: save | tab: toggle focus | q: quit",
+            "g/G: top/bottom | s: save | S: save pair | "
+            "tab: toggle focus | q: quit",
             timeout=8,
         )
 
