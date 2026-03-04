@@ -26,6 +26,7 @@ dependencies = [
     "tokenizers>=0.22.1",
     "torch>=2.9.1",
     "transformers>=4.57.1",
+    "textual>=1.0.0",
     "typer>=0.23.0",
 ]
 
