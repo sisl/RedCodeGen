@@ -93,6 +93,7 @@ def process_scenario_worker(
     api_base: str,
     temperature: float,
     log_level: str,
+    reasoning_effort: str | None = None,
 ):
     """Worker function that pulls tasks from queue and processes them."""
     # Import here to avoid issues with multiprocessing
@@ -109,7 +110,7 @@ def process_scenario_worker(
     )
 
     # Each process needs its own DSPy configuration
-    lm = create_lm(model_name=model, temperature=temperature, api_key=api_key, api_base=api_base)
+    lm = create_lm(model_name=model, temperature=temperature, api_key=api_key, api_base=api_base, reasoning_effort=reasoning_effort)
     dspy.configure(lm=lm)
 
     worker_logger.debug("Worker started, waiting for tasks...")
@@ -204,6 +205,7 @@ def amplify(
     api_key: str | None = typer.Option(None, "--api-key", help="API key (defaults to OPENAI_API_KEY env var)"),
     api_base: str | None = typer.Option(None, "--api-base", help="API base URL (defaults to OPENAI_API_BASE env var)"),
     temperature: float = typer.Option(0.8, "--temperature", help="Temperature for rephrasing"),
+    reasoning_effort: str | None = typer.Option(None, "--reasoning-effort", help="Reasoning effort for model (low, medium, high)"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose output"),
 ):
     """Amplify vulnerable scenarios using MCMC to explore failure boundaries.
@@ -217,7 +219,7 @@ def amplify(
     resolved_api_base = api_base or os.getenv("OPENAI_API_BASE")
 
     # Configure DSPy with specified model
-    lm = create_lm(model_name=model, temperature=temperature, api_key=resolved_api_key, api_base=resolved_api_base)
+    lm = create_lm(model_name=model, temperature=temperature, api_key=resolved_api_key, api_base=resolved_api_base, reasoning_effort=reasoning_effort)
     dspy.configure(lm=lm)
     logger.info(f"Configured model: {model}")
 
@@ -332,6 +334,7 @@ def amplify(
                 resolved_api_base,
                 temperature,
                 log_level,
+                reasoning_effort,
             )
 
             # Use apply_async to start workers that will process tasks from queue
