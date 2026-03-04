@@ -92,9 +92,12 @@ def _run_codeql_analysis(source_root: Path, workdir: Path, language: str = DEFAU
         ]
         if lang_config.codeql_language == "cpp":
             build_dir = source_root / "_build"
-            create_cmd.append(
-                f"--command=sh -c 'cmake -S {source_root} -B {build_dir} && cmake --build {build_dir}'"
+            build_script = source_root / "_codeql_build.sh"
+            build_script.write_text(
+                f"#!/bin/sh\ncmake -S {source_root} -B {build_dir} && cmake --build {build_dir}\n"
             )
+            build_script.chmod(0o755)
+            create_cmd.append(f"--command={build_script}")
 
         logger.debug(f"Creating CodeQL database in {db_dir} from {source_root}")
         _run_codeql_subprocess(create_cmd, "database create")
