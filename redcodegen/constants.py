@@ -134,7 +134,7 @@ def create_lm(model_name="openai/gpt-4o-mini", temperature=0.8, api_key=None, ap
             normalized_model,
             api_key=api_key,
             temperature=temperature,
-            max_tokens=16000,
+            max_tokens=32000,
             **extra_kwargs,
         )
     else:
@@ -143,7 +143,7 @@ def create_lm(model_name="openai/gpt-4o-mini", temperature=0.8, api_key=None, ap
             api_key=api_key,
             api_base=normalized_api_base,
             temperature=temperature,
-            max_tokens=16000,
+            max_tokens=32000,
             **extra_kwargs,
         )
 
