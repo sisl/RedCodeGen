@@ -654,6 +654,7 @@ class ExploreApp(App[None]):
         self._show_root_view()
 
     def _populate_tree(self) -> None:
+        self._cwes.sort(key=lambda c: c.cwe_id)
         tree = self.query_one("#nav-tree", CWETree)
         root = tree.root
         total_r = sum(c.total_rollouts for c in self._cwes)
@@ -758,7 +759,7 @@ class ExploreApp(App[None]):
 
         # CWE summary table
         table = DataTable()
-        table.add_columns(
+        col_keys = table.add_columns(
             "CWE", "Scenarios", "Rollouts", "Pass", "Fail",
             "Vuln Rate", "Vuln Rate (Tests Pass)", "Vuln Rate (Tests Fail)",
         )
@@ -777,6 +778,7 @@ class ExploreApp(App[None]):
             )
         container.mount(Static("CWE Overview:", classes="detail-section"))
         container.mount(table)
+        table.sort(col_keys[5], key=_sort_key, reverse=True)
 
     def _show_cwe_view(self, cwe_idx: int) -> None:
         self._clear_detail()
@@ -793,7 +795,7 @@ class ExploreApp(App[None]):
 
         # Scenario table
         table = DataTable()
-        table.add_columns(
+        col_keys = table.add_columns(
             "#", "Description", "Rollouts", "Pass", "Fail",
             "Vuln Rate", "Vuln Rate (Tests Pass)", "Vuln Rate (Tests Fail)",
         )
@@ -809,6 +811,7 @@ class ExploreApp(App[None]):
             )
         container.mount(Static("Scenarios:", classes="detail-section"))
         container.mount(table)
+        table.sort(col_keys[5], key=_sort_key, reverse=True)
 
     def _show_scenario_view(self, cwe_idx: int, scenario_idx: int) -> None:
         self._clear_detail()
@@ -852,7 +855,7 @@ class ExploreApp(App[None]):
 
         # Rollout table
         table = DataTable()
-        table.add_columns("#", "Status", "Passed", "Failed", "Vulns", "Lines")
+        col_keys = table.add_columns("#", "Status", "Passed", "Failed", "Vulns", "Lines")
         for ri, rollout in enumerate(scenario.rollouts):
             status = "?"
             if rollout.passes_tests is True:
@@ -873,6 +876,7 @@ class ExploreApp(App[None]):
             )
         container.mount(Static("Rollouts:", classes="detail-section"))
         container.mount(table)
+        table.sort(col_keys[4], key=_sort_key, reverse=True)
 
     def _show_rollout_view(
         self, cwe_idx: int, scenario_idx: int, rollout_idx: int
