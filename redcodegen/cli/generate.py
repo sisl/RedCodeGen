@@ -215,9 +215,10 @@ def generate_scenarios(config: GenerateConfig):
 
                 # Generate K rollouts using code_lm (global default)
                 logger.info(f"    Generating {config.num_rollouts} rollout(s)...")
-                codes = run_k(scenario, config.num_rollouts)
+                codes = run_k(scenario, config.num_rollouts, test_code=test_code or "")
 
                 # Evaluate rollouts in parallel (I/O-bound: tests + semgrep)
+                # Implement this inline to avoid having to repeatedly pass the tests
                 def _process_rollout(code):
                     passes_tests = None
                     test_details = None
