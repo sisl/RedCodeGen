@@ -6,8 +6,10 @@ from pathlib import Path
 import pytest
 
 from redcodegen.cli.explore import (
+    Rollout,
     TestDetails,
     TestResult,
+    _compute_rollout_stats,
     _parse_test_details,
     load_data,
 )
@@ -110,3 +112,42 @@ class TestLoadDataFixture:
                 for r in s.rollouts:
                     # test_details is either a TestDetails or None — never raises
                     assert r.test_details is None or isinstance(r.test_details, TestDetails)
+
+
+# ---------------------------------------------------------------------------
+# _compute_rollout_stats — test pass rate
+# ---------------------------------------------------------------------------
+
+
+class TestComputeRolloutStats:
+    def test_test_pass_rate_with_details(self):
+        rollouts = [
+            Rollout(code="", passes_tests=True, vulnerabilities=[],
+                    test_details=TestDetails(num_tests=3, num_passed=3, num_failed=0, results=[])),
+            Rollout(code="", passes_tests=False, vulnerabilities=[],
+                    test_details=TestDetails(num_tests=3, num_passed=1, num_failed=2, results=[])),
+        ]
+        stats = _compute_rollout_stats(rollouts)
+        assert stats["total_tests"] == 6
+        assert stats["total_tests_passed"] == 4
+        assert stats["test_pass_rate"] == "66.7%"
+
+    def test_test_pass_rate_no_details(self):
+        rollouts = [
+            Rollout(code="", passes_tests=None, vulnerabilities=[], test_details=None),
+        ]
+        stats = _compute_rollout_stats(rollouts)
+        assert stats["total_tests"] == 0
+        assert stats["total_tests_passed"] == 0
+        assert stats["test_pass_rate"] == "-"
+
+    def test_test_pass_rate_mixed(self):
+        rollouts = [
+            Rollout(code="", passes_tests=True, vulnerabilities=[],
+                    test_details=TestDetails(num_tests=2, num_passed=2, num_failed=0, results=[])),
+            Rollout(code="", passes_tests=None, vulnerabilities=[], test_details=None),
+        ]
+        stats = _compute_rollout_stats(rollouts)
+        assert stats["total_tests"] == 2
+        assert stats["total_tests_passed"] == 2
+        assert stats["test_pass_rate"] == "100.0%"

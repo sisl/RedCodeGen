@@ -102,17 +102,20 @@ def run_tests(code: str, test_code: str, timeout: int = 30, install_deps: bool =
         (workdir / "solution.py").write_text(code, encoding="utf-8")
         (workdir / "test_solution.py").write_text(test_code, encoding="utf-8")
 
-        python_cmd = "python"
+        use_uv = False
         if install_deps:
             modules = extract_imports(code, test_code)
             packages = resolve_packages(modules)
             if packages:
-                python_path = create_uv_env(workdir, packages)
-                if python_path is not None:
-                    python_cmd = str(python_path)
+                use_uv = create_uv_env(workdir, packages)
+
+        if use_uv:
+            cmd = ["uv", "run", "pytest", "test_solution.py", "-v", "--tb=short"]
+        else:
+            cmd = ["python", "-m", "pytest", "test_solution.py", "-v", "--tb=short"]
 
         result = subprocess.run(
-            [python_cmd, "-m", "pytest", "test_solution.py", "-v", "--tb=short"],
+            cmd,
             cwd=str(workdir),
             capture_output=True,
             text=True,

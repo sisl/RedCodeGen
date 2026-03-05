@@ -54,14 +54,24 @@ class TestResolvePackages:
         assert "pymongo" in pkgs
 
     def test_passthrough_unknown(self):
+        mods = {"requests"}
+        pkgs = resolve_packages(mods)
+        assert pkgs == ["requests"]
+
+    def test_applies_package_extras(self):
         mods = {"fastapi"}
         pkgs = resolve_packages(mods)
-        assert pkgs == ["fastapi"]
+        assert pkgs == ["fastapi[standard]"]
+
+    def test_applies_starlette_extras(self):
+        mods = {"starlette"}
+        pkgs = resolve_packages(mods)
+        assert pkgs == ["starlette[full]"]
 
     def test_empty(self):
         assert resolve_packages(set()) == []
 
     def test_sorted_output(self):
-        mods = {"requests", "flask", "fastapi"}
+        mods = {"requests", "flask", "click"}
         pkgs = resolve_packages(mods)
         assert pkgs == sorted(pkgs)

@@ -25,6 +25,12 @@ _IMPORT_TO_PYPI: dict[str, str] = {
     "yaml": "pyyaml",               # Yaml
 }
 
+# Packages that need extras for testing (e.g. fastapi[standard] includes httpx)
+_PACKAGE_EXTRAS: dict[str, str] = {
+    "fastapi": "fastapi[standard]",
+    "starlette": "starlette[full]",
+}
+
 # Modules that are internal to our test harness — never install these
 _INTERNAL_MODULES = frozenset({"solution", "test_solution", "conftest"})
 
@@ -39,32 +45,57 @@ def extract_imports(*sources: str) -> set[str]:
 
 
 def resolve_packages(modules: set[str]) -> list[str]:
-    """Filter stdlib/internal modules and map to PyPI package names."""
+    """Filter stdlib/internal modules and map to PyPI package names with extras."""
     packages: list[str] = []
     stdlib = sys.stdlib_module_names
     for mod in sorted(modules):
         if mod in stdlib or mod in _INTERNAL_MODULES:
             continue
-        packages.append(_IMPORT_TO_PYPI.get(mod, mod))
+        pkg = _IMPORT_TO_PYPI.get(mod, mod)
+        pkg = _PACKAGE_EXTRAS.get(pkg, pkg)
+        packages.append(pkg)
     return packages
+
+
+def build_script_header(code: str, test_code: str) -> str:
+    """Build a PEP 723 inline script metadata block for dependencies."""
+    modules = extract_imports(code, test_code)
+    packages = resolve_packages(modules)
+    packages = sorted(set(packages + ["pytest"]))
+    lines = [
+        "# /// script",
+        '# requires-python = ">=3.11"',
+        "# dependencies = [",
+    ]
+    for pkg in packages:
+        lines.append(f'#   "{pkg}",')
+    lines += ["# ]", "# ///", ""]
+    return "\n".join(lines)
+
+
+def build_script_footer() -> str:
+    """Build a __main__ block that invokes pytest on the script itself."""
+    return (
+        '\n\nif __name__ == "__main__":\n'
+        "    import sys\n"
+        "    sys.exit(pytest.main([__file__, \"-v\"]))\n"
+    )
 
 
 def create_uv_env(
     workdir: Path,
     packages: list[str],
     timeout: int = 120,
-) -> Path | None:
-    """Create a uv venv and install packages + pytest. Returns python path or None."""
+) -> bool:
+    """Create a uv project and add packages + pytest. Returns True on success."""
     if not shutil.which("uv"):
-        logger.debug("uv not found on PATH, skipping venv creation")
-        return None
-
-    venv_dir = workdir / ".venv"
-    python_path = venv_dir / "bin" / "python"
+        logger.debug("uv not found on PATH, skipping env creation")
+        return False
 
     try:
         subprocess.run(
-            ["uv", "venv", str(venv_dir), "--python", sys.executable],
+            ["uv", "init", "--no-readme", "--python", sys.executable],
+            cwd=str(workdir),
             capture_output=True,
             text=True,
             timeout=30,
@@ -73,14 +104,15 @@ def create_uv_env(
 
         all_packages = ["pytest"] + packages
         subprocess.run(
-            ["uv", "pip", "install", "--python", str(python_path)] + all_packages,
+            ["uv", "add"] + all_packages,
+            cwd=str(workdir),
             capture_output=True,
             text=True,
             timeout=timeout,
             check=True,
         )
 
-        return python_path
+        return True
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as e:
         logger.warning(f"Failed to create uv environment: {e}")
-        return None
+        return False

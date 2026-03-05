@@ -14,6 +14,7 @@ from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import (
+    Button,
     DataTable,
     Footer,
     Header,
@@ -27,6 +28,7 @@ from textual.widgets.tree import TreeNode
 from rich.text import Text
 
 from redcodegen.cli.app import app
+from redcodegen.test_env import build_script_footer, build_script_header
 from redcodegen.cli.common import read_config_record, read_data_records
 
 
@@ -157,6 +159,10 @@ def _compute_rollout_stats(rollouts: list[Rollout]) -> dict[str, Any]:
         1 for r in rollouts if r.passes_tests is False and r.vulnerabilities
     )
 
+    # Aggregate individual test case counts
+    total_tests = sum(r.test_details.num_tests for r in rollouts if r.test_details)
+    total_tests_passed = sum(r.test_details.num_passed for r in rollouts if r.test_details)
+
     return {
         "total": total,
         "passing": passing,
@@ -170,6 +176,9 @@ def _compute_rollout_stats(rollouts: list[Rollout]) -> dict[str, Any]:
         "vuln_rate": _vuln_rate(with_vulns, total),
         "vuln_rate_passing": _vuln_rate(passing_with_vulns, passing),
         "vuln_rate_failing": _vuln_rate(failing_with_vulns, failing),
+        "total_tests": total_tests,
+        "total_tests_passed": total_tests_passed,
+        "test_pass_rate": _vuln_rate(total_tests_passed, total_tests),
     }
 
 
@@ -186,6 +195,8 @@ def _format_stats_block(stats: dict[str, Any]) -> str:
         f"  With vulns:    {stats['with_vulns']}",
         f"  Clean:         {stats['without_vulns']}",
         f"Total findings:  {stats['total_findings']}",
+        "",
+        f"Test pass rate: {stats['test_pass_rate']} ({stats['total_tests_passed']}/{stats['total_tests']} tests)",
         "",
         f"Vulnerability rate (overall):        {stats['vuln_rate']}",
         f"Vulnerability rate (tests passing):  {stats['vuln_rate_passing']}",
@@ -418,7 +429,9 @@ class SavePairScreen(ModalScreen[str | None]):
                 d = Path(dirpath)
                 d.mkdir(parents=True, exist_ok=True)
                 (d / "solution.py").write_text(self._code)
-                (d / "test_solution.py").write_text(self._tests)
+                header = build_script_header(self._code, self._tests)
+                footer = build_script_footer()
+                (d / "test_solution.py").write_text(header + self._tests + footer)
                 self.dismiss(dirpath)
             except OSError as e:
                 self.app.notify(f"Error saving: {e}", severity="error")
@@ -450,6 +463,7 @@ class PytestCommandScreen(ModalScreen[None]):
                 id="pytest-input",
                 select_on_focus=True,
             )
+            yield Button("Copy to clipboard", id="copy-btn")
             yield Label(
                 "Press Escape or Enter to close",
                 classes="hint-label",
@@ -457,6 +471,11 @@ class PytestCommandScreen(ModalScreen[None]):
 
     def on_mount(self) -> None:
         self.query_one("#pytest-input", Input).focus()
+
+    @on(Button.Pressed, "#copy-btn")
+    def on_copy(self, event: Button.Pressed) -> None:
+        self.app.copy_to_clipboard(self._command)
+        self.app.notify("Copied to clipboard")
 
     def action_close(self) -> None:
         self.dismiss(None)
@@ -585,6 +604,10 @@ DataTable {
 
 #pytest-dialog Label {
     margin-bottom: 1;
+}
+
+#copy-btn {
+    margin: 1 0;
 }
 
 .hint-label {
@@ -761,6 +784,7 @@ class ExploreApp(App[None]):
         table = DataTable()
         col_keys = table.add_columns(
             "CWE", "Scenarios", "Rollouts", "Pass", "Fail",
+            "Test Pass Rate",
             "Vuln Rate", "Vuln Rate (Tests Pass)", "Vuln Rate (Tests Fail)",
         )
         for cwe in self._cwes:
@@ -772,13 +796,14 @@ class ExploreApp(App[None]):
                 str(cs["total"]),
                 str(cs["passing"]),
                 str(cs["failing"]),
+                cs["test_pass_rate"],
                 cs["vuln_rate"],
                 cs["vuln_rate_passing"],
                 cs["vuln_rate_failing"],
             )
         container.mount(Static("CWE Overview:", classes="detail-section"))
         container.mount(table)
-        table.sort(col_keys[5], key=_sort_key, reverse=True)
+        table.sort(col_keys[6], key=_sort_key, reverse=True)
 
     def _show_cwe_view(self, cwe_idx: int) -> None:
         self._clear_detail()
@@ -797,6 +822,7 @@ class ExploreApp(App[None]):
         table = DataTable()
         col_keys = table.add_columns(
             "#", "Description", "Rollouts", "Pass", "Fail",
+            "Test Pass Rate",
             "Vuln Rate", "Vuln Rate (Tests Pass)", "Vuln Rate (Tests Fail)",
         )
         for si, scenario in enumerate(cwe.scenarios):
@@ -807,11 +833,12 @@ class ExploreApp(App[None]):
             table.add_row(
                 str(si + 1), desc, str(ss["total"]),
                 str(ss["passing"]), str(ss["failing"]),
+                ss["test_pass_rate"],
                 ss["vuln_rate"], ss["vuln_rate_passing"], ss["vuln_rate_failing"],
             )
         container.mount(Static("Scenarios:", classes="detail-section"))
         container.mount(table)
-        table.sort(col_keys[5], key=_sort_key, reverse=True)
+        table.sort(col_keys[6], key=_sort_key, reverse=True)
 
     def _show_scenario_view(self, cwe_idx: int, scenario_idx: int) -> None:
         self._clear_detail()
@@ -855,7 +882,7 @@ class ExploreApp(App[None]):
 
         # Rollout table
         table = DataTable()
-        col_keys = table.add_columns("#", "Status", "Passed", "Failed", "Vulns", "Lines")
+        col_keys = table.add_columns("#", "Status", "Passed", "Failed", "Test Pass Rate", "Vulns", "Lines")
         for ri, rollout in enumerate(scenario.rollouts):
             status = "?"
             if rollout.passes_tests is True:
@@ -865,18 +892,20 @@ class ExploreApp(App[None]):
             td = rollout.test_details
             passed_str = str(td.num_passed) if td else "-"
             failed_str = str(td.num_failed) if td else "-"
+            pass_rate = _vuln_rate(td.num_passed, td.num_tests) if td else "-"
             line_count = rollout.code.count("\n") + 1
             table.add_row(
                 str(ri + 1),
                 status,
                 passed_str,
                 failed_str,
+                pass_rate,
                 str(len(rollout.vulnerabilities)),
                 str(line_count),
             )
         container.mount(Static("Rollouts:", classes="detail-section"))
         container.mount(table)
-        table.sort(col_keys[4], key=_sort_key, reverse=True)
+        table.sort(col_keys[5], key=_sort_key, reverse=True)
 
     def _show_rollout_view(
         self, cwe_idx: int, scenario_idx: int, rollout_idx: int
@@ -1077,7 +1106,7 @@ class ExploreApp(App[None]):
         def on_dismiss(result: str | None) -> None:
             if result:
                 self.notify(f"Saved pair to {result}/")
-                cmd = f"pytest {result}/test_solution.py -v"
+                cmd = f"uv run {result}/test_solution.py"
                 self.push_screen(PytestCommandScreen(cmd))
 
         self.push_screen(
