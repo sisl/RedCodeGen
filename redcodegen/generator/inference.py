@@ -2,6 +2,7 @@
 inference-based code generator
 """
 
+import dspy
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from redcodegen.scenarios import generate, regenerate
@@ -26,6 +27,13 @@ def init_model(model):
 def set_model(model):
     global DEFAULT_MODEL
     DEFAULT_MODEL = model
+
+class CodeCleaner(dspy.Signature):
+    """Given the code and optional explanation, extract just the code parts verbatim"""
+
+    inp: str = dspy.InputField()
+    code: str = dspy.OutputField(desc="The raw codeblock in the input, just return the code verbatim, do not add additional annotations, fences, etc.")
+cleaner = dspy.Predict(CodeCleaner)
 
 class CodeGenerator:
     def __init__(self, model):
@@ -67,7 +75,7 @@ class CodeGenerator:
         result = self.model.generate(**inputs, max_new_tokens=1000, pad_token_id=self.tokenizer.eos_token_id)
         decoded = self.tokenizer.batch_decode(result, skip_special_tokens=True)
         code = decoded[0].split("assistant\n")[-1].strip()
-        return code.replace("```python", "").replace("```", "").strip()
+        return cleaner(inp=code.replace("```python", "").replace("```", "").strip()).code
 
 
 def run(task):
