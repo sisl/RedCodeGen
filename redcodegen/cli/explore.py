@@ -59,6 +59,7 @@ class Vulnerability:
     message: str
     line: int | None
     analyzer: str
+    security_severity: float | None = None
 
 
 @dataclass
@@ -143,6 +144,23 @@ def _vuln_rate(numerator: int, denominator: int) -> str:
     return f"{numerator / denominator * 100:.1f}%"
 
 
+def _severity_stats(rollouts: list[Rollout]) -> dict[str, str]:
+    """Compute avg/min/max security severity across all vulnerabilities."""
+    severities = [
+        v.security_severity
+        for r in rollouts
+        for v in r.vulnerabilities
+        if v.security_severity is not None
+    ]
+    if not severities:
+        return {"severity_avg": "-", "severity_min": "-", "severity_max": "-"}
+    return {
+        "severity_avg": f"{sum(severities) / len(severities):.1f}",
+        "severity_min": f"{min(severities):.1f}",
+        "severity_max": f"{max(severities):.1f}",
+    }
+
+
 def _compute_rollout_stats(rollouts: list[Rollout]) -> dict[str, Any]:
     """Compute aggregate statistics for a list of rollouts."""
     total = len(rollouts)
@@ -163,7 +181,7 @@ def _compute_rollout_stats(rollouts: list[Rollout]) -> dict[str, Any]:
     total_tests = sum(r.test_details.num_tests for r in rollouts if r.test_details)
     total_tests_passed = sum(r.test_details.num_passed for r in rollouts if r.test_details)
 
-    return {
+    result = {
         "total": total,
         "passing": passing,
         "failing": failing,
@@ -180,6 +198,8 @@ def _compute_rollout_stats(rollouts: list[Rollout]) -> dict[str, Any]:
         "total_tests_passed": total_tests_passed,
         "test_pass_rate": _vuln_rate(total_tests_passed, total_tests),
     }
+    result.update(_severity_stats(rollouts))
+    return result
 
 
 def _format_stats_block(stats: dict[str, Any]) -> str:
@@ -201,6 +221,9 @@ def _format_stats_block(stats: dict[str, Any]) -> str:
         f"Vulnerability rate (overall):        {stats['vuln_rate']}",
         f"Vulnerability rate (tests passing):  {stats['vuln_rate_passing']}",
         f"Vulnerability rate (tests failing):  {stats['vuln_rate_failing']}",
+        "",
+        f"Security severity  avg: {stats['severity_avg']}  "
+        f"min: {stats['severity_min']}  max: {stats['severity_max']}",
     ]
     return "\n".join(lines)
 
@@ -249,15 +272,18 @@ def _parse_vulnerabilities(raw: Any) -> list[Vulnerability]:
             return []
     if not isinstance(raw, list):
         return []
-    return [
-        Vulnerability(
+    vulns = []
+    for v in raw:
+        sev_raw = v.get("security_severity")
+        sev = float(sev_raw) if sev_raw is not None else None
+        vulns.append(Vulnerability(
             rule=v.get("rule", "unknown"),
             message=v.get("message", ""),
             line=v.get("line"),
             analyzer=v.get("analyzer", "unknown"),
-        )
-        for v in raw
-    ]
+            security_severity=sev,
+        ))
+    return vulns
 
 
 def _parse_test_details(raw: Any) -> TestDetails | None:
@@ -786,6 +812,7 @@ class ExploreApp(App[None]):
             "CWE", "Scenarios", "Rollouts", "Pass", "Fail",
             "Test Pass Rate",
             "Vuln Rate", "Vuln Rate (Tests Pass)", "Vuln Rate (Tests Fail)",
+            "Sev Avg", "Sev Min", "Sev Max",
         )
         for cwe in self._cwes:
             cwe_rollouts = [r for s in cwe.scenarios for r in s.rollouts]
@@ -800,6 +827,9 @@ class ExploreApp(App[None]):
                 cs["vuln_rate"],
                 cs["vuln_rate_passing"],
                 cs["vuln_rate_failing"],
+                cs["severity_avg"],
+                cs["severity_min"],
+                cs["severity_max"],
             )
         container.mount(Static("CWE Overview:", classes="detail-section"))
         container.mount(table)
@@ -824,6 +854,7 @@ class ExploreApp(App[None]):
             "#", "Description", "Rollouts", "Pass", "Fail",
             "Test Pass Rate",
             "Vuln Rate", "Vuln Rate (Tests Pass)", "Vuln Rate (Tests Fail)",
+            "Sev Avg", "Sev Min", "Sev Max",
         )
         for si, scenario in enumerate(cwe.scenarios):
             desc = scenario.description[:50]
@@ -835,6 +866,7 @@ class ExploreApp(App[None]):
                 str(ss["passing"]), str(ss["failing"]),
                 ss["test_pass_rate"],
                 ss["vuln_rate"], ss["vuln_rate_passing"], ss["vuln_rate_failing"],
+                ss["severity_avg"], ss["severity_min"], ss["severity_max"],
             )
         container.mount(Static("Scenarios:", classes="detail-section"))
         container.mount(table)
@@ -882,7 +914,10 @@ class ExploreApp(App[None]):
 
         # Rollout table
         table = DataTable()
-        col_keys = table.add_columns("#", "Status", "Passed", "Failed", "Test Pass Rate", "Vulns", "Lines")
+        col_keys = table.add_columns(
+            "#", "Status", "Passed", "Failed", "Test Pass Rate",
+            "Vulns", "Sev Avg", "Lines",
+        )
         for ri, rollout in enumerate(scenario.rollouts):
             status = "?"
             if rollout.passes_tests is True:
@@ -894,6 +929,7 @@ class ExploreApp(App[None]):
             failed_str = str(td.num_failed) if td else "-"
             pass_rate = _vuln_rate(td.num_passed, td.num_tests) if td else "-"
             line_count = rollout.code.count("\n") + 1
+            sev = _severity_stats([rollout])
             table.add_row(
                 str(ri + 1),
                 status,
@@ -901,6 +937,7 @@ class ExploreApp(App[None]):
                 failed_str,
                 pass_rate,
                 str(len(rollout.vulnerabilities)),
+                sev["severity_avg"],
                 str(line_count),
             )
         container.mount(Static("Rollouts:", classes="detail-section"))
@@ -979,12 +1016,13 @@ class ExploreApp(App[None]):
         # Vulnerability table
         if rollout.vulnerabilities:
             table = DataTable()
-            table.add_columns("Rule", "Message", "Line", "Analyzer")
+            table.add_columns("Rule", "Message", "Line", "Severity", "Analyzer")
             for v in rollout.vulnerabilities:
                 table.add_row(
                     v.rule,
                     v.message[:80],
                     str(v.line) if v.line else "-",
+                    f"{v.security_severity:.1f}" if v.security_severity is not None else "-",
                     v.analyzer,
                 )
             container.mount(

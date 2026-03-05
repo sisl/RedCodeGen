@@ -92,16 +92,6 @@ def generate_scenarios(config: GenerateConfig):
     })
     logger.debug(f"Starting generation with config: {safe_config}")
 
-    # Create code model (model under test) — set as global default
-    code_lm = create_lm(
-        model_name=config.model,
-        temperature=config.temperature,
-        api_key=config.api_key,
-        api_base=config.api_base,
-        reasoning_effort=config.reasoning_effort,
-    )
-    dspy.configure(lm=code_lm)
-
     # Create test model (trusted infrastructure model)
     test_lm = create_lm(
         model_name=config.test_model,
@@ -111,8 +101,24 @@ def generate_scenarios(config: GenerateConfig):
     )
     logger.info(f"Test model: {config.test_model}")
 
-    # Import after configuring dspy
-    from redcodegen.generator import run_k
+    if config.checkpoint:
+        # Local checkpoint mode: use HF model for code generation, test_lm for everything else
+        from redcodegen.generator.inference import init_model
+        from redcodegen.generator.inference import run_k
+        init_model(config.checkpoint, temperature=config.temperature)
+        dspy.configure(lm=test_lm)
+        logger.info(f"Using local checkpoint: {config.checkpoint}")
+    else:
+        # API mode: use code_lm for code generation
+        code_lm = create_lm(
+            model_name=config.model,
+            temperature=config.temperature,
+            api_key=config.api_key,
+            api_base=config.api_base,
+            reasoning_effort=config.reasoning_effort,
+        )
+        dspy.configure(lm=code_lm)
+        from redcodegen.generator import run_k
     from redcodegen.scenarios import generate as gen_scenarios
     from redcodegen.test_gen import generate_test_with_model, run_tests
     from redcodegen.analyzers.evaluate import evaluate
@@ -122,7 +128,10 @@ def generate_scenarios(config: GenerateConfig):
     output_dir.mkdir(parents=True, exist_ok=True)
 
     temperature_str = f't{config.temperature}'.replace('.', 'p')
-    model_str = config.model.split('/')[-1].replace('-', '_')
+    if config.checkpoint:
+        model_str = Path(config.checkpoint).name.replace('-', '_')
+    else:
+        model_str = config.model.split('/')[-1].replace('-', '_')
     re_suffix = f"_re{config.reasoning_effort}" if config.reasoning_effort else ""
     output_filename = f"generated_scenarios_{model_str}_{temperature_str}_n{config.min_samples}_k{config.num_rollouts}{re_suffix}.jsonl"
     output_path = output_dir / output_filename
@@ -346,6 +355,7 @@ def generate(
     test_api_base: str | None = typer.Option(None, "--test-api-base", help="Base URL for the test model API (defaults to --api-base)"),
     analysis_tool: AnalysisTool = typer.Option(AnalysisTool.SEMGREP.value, "--analysis-tool", "-a", help="Static analysis tool to use for evaluation (e.g., codeql, semgrep, all)"),
     reasoning_effort: str | None = typer.Option(None, "--reasoning-effort", help="Reasoning effort for code model (low, medium, high)"),
+    checkpoint: str | None = typer.Option(None, "--checkpoint", help="Path to local HuggingFace model checkpoint for code generation"),
 ):
     """Generate scenarios that induce vulnerabilities in LLM-generated code.
 
@@ -370,6 +380,7 @@ def generate(
         test_api_base=test_api_base or os.getenv("TEST_LLM_API_BASE"),
         analysis_tool=analysis_tool,
         reasoning_effort=reasoning_effort,
+        checkpoint=checkpoint,
     )
 
     configure_logging(config.verbose)
