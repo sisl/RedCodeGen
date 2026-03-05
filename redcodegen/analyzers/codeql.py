@@ -31,10 +31,12 @@ def _write_cmake_build_files(source_root: Path) -> None:
     if not c_files:
         return
 
+    has_cpp = any(f.suffix == ".cpp" for f in c_files)
+    languages = "C CXX" if has_cpp else "C"
     sources = " ".join(f.name for f in c_files)
     cmake_content = (
         "cmake_minimum_required(VERSION 3.10)\n"
-        "project(codeql_analysis C)\n"
+        f"project(codeql_analysis {languages})\n"
         f"add_library(analysis_target OBJECT {sources})\n"
     )
     (source_root / "CMakeLists.txt").write_text(cmake_content, encoding="utf-8")

@@ -149,10 +149,12 @@ def _write_cmake_build_files(source_root: Path) -> None:
     if not c_files:
         return
 
+    has_cpp = any(f.suffix == ".cpp" for f in c_files)
+    languages = "C CXX" if has_cpp else "C"
     sources = " ".join(f.name for f in c_files)
     cmake_content = (
         "cmake_minimum_required(VERSION 3.10)\n"
-        "project(codeql_analysis C)\n"
+        f"project(codeql_analysis {languages})\n"
         f"add_library(analysis_target OBJECT {sources})\n"
     )
     (source_root / "CMakeLists.txt").write_text(cmake_content, encoding="utf-8")
@@ -263,8 +265,10 @@ def evaluate(program: str, workdir: str = "/tmp", language: str = DEFAULT_LANGUA
     src_dir = Path(tempfile.mkdtemp(prefix="codeql_src_", dir=workdir))
 
     try:
-        # Write program to source directory
-        program_path = src_dir / f"program{lang_config.extension}"
+        # Write program to source directory; use .cpp for C/C++ so the
+        # compiler accepts both C and C++ code (LLMs often mix them).
+        ext = ".cpp" if lang_config.codeql_language == "cpp" else lang_config.extension
+        program_path = src_dir / f"program{ext}"
         program_path.write_text(program, encoding='utf-8')
 
         return _run_codeql_analysis(src_dir, workdir, language)

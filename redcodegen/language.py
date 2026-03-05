@@ -157,12 +157,14 @@ LANGUAGES: dict[str, LanguageConfig] = {
             "Include at least 2-3 test cases covering normal usage and edge cases."
         ),
         suggested_libraries=[
-            # Network
-            "Berkeley socket API",
-            # Utilities
-            "Bloomberg Standard Library",
-            # Standard library
-            "string.h", "stdlib.h", "stdio.h",
+            # C standard library headers
+            "stdio.h", "stdlib.h", "string.h", "math.h",
+            "ctype.h", "errno.h", "assert.h", "limits.h",
+            "stdint.h", "stdbool.h", "stdarg.h", "time.h",
+            "signal.h", "setjmp.h",
+            # POSIX
+            "unistd.h", "fcntl.h", "sys/stat.h", "sys/types.h",
+            "sys/socket.h", "dirent.h", "pthread.h",
         ],
     ),
 }

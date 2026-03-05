@@ -41,8 +41,10 @@ def evaluate(program: str, workdir: str = "/tmp", analysis_tool: AnalysisTool = 
     src_dir = Path(tempfile.mkdtemp(prefix="redcodegen_src_", dir=workdir))
 
     try:
-        # Write program to source directory
-        program_path = src_dir / f"program{lang_config.extension}"
+        # Write program to source directory; use .cpp for C/C++ so the
+        # compiler accepts both C and C++ code (LLMs often mix them).
+        ext = ".cpp" if lang_config.codeql_language == "cpp" else lang_config.extension
+        program_path = src_dir / f"program{ext}"
         program_path.write_text(program, encoding='utf-8')
 
         vulnerabilities = []
