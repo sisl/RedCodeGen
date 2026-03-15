@@ -1,7 +1,7 @@
 [project]
 name = "redcodegen"
-version = "0.2.0"
-description = "Add your description here"
+version = "0.3.0"
+description = "Language model security defense."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -39,7 +39,7 @@ rcg = "redcodegen.cli:main"
 package = true
 
 [build-system]
-requires = ["uv_build>=0.9.5,<0.10.0"]
+requires = ["uv_build>=0.9.5,<0.11.0"]
 build-backend = "uv_build"
 
 [dependency-groups]
