@@ -6,30 +6,36 @@ from pathlib import Path
 import dspy
 
 from redcodegen.analyzers.common import _cleanup
+from redcodegen.language import get_language_config, DEFAULT_LANGUAGE
 from redcodegen.test_env import extract_imports, resolve_packages, create_uv_env
 
 
 class GenerateTest(dspy.Signature):
-    """Given a coding task description, generate a pytest test file that validates functional correctness.
+    """Given a coding task description, generate a test file that validates functional correctness.
 
-    The test should import from a module called `solution` (e.g., `from solution import ...`).
     Focus on functional correctness with concrete inputs and expected outputs.
     Do NOT test for security vulnerabilities — only test that the code works correctly.
     Include at least 2-3 test cases covering normal usage and edge cases.
-    Mock any external dependencies (databases, network, file I/O) if needed."""
+    Mock any external dependencies (databases, network, file I/O) if needed.
+
+    The `language` and `test_instructions` fields specify the target language and
+    framework-specific instructions for the test file."""
 
     task: str = dspy.InputField()
+    language: str = dspy.InputField()
+    test_instructions: str = dspy.InputField()
     test_code: str = dspy.OutputField(
-        desc="A pytest test file that imports from `solution` and validates correctness; do not add explanation or markdown fences."
+        desc="A test file that validates correctness; do not add explanation or markdown fences."
     )
 
 
 _test_generator = dspy.ChainOfThought(GenerateTest)
 
 
-def _strip_fences(text: str) -> str:
+def _strip_fences(text: str, language: str = DEFAULT_LANGUAGE) -> str:
     """Remove markdown code fences from generated text."""
-    return text.replace("```python", "").replace("```", "").strip()
+    lang_config = get_language_config(language)
+    return text.replace(f"```{lang_config.code_fence}", "").replace("```", "").strip()
 
 
 # Matches pytest summary lines like "2 passed, 1 failed in 0.12s"
@@ -72,47 +78,64 @@ def _parse_pytest_counts(stdout: str) -> dict:
     return counts
 
 
-def generate_test(task: str) -> str:
-    """Generate a pytest test file for the given task description.
+def generate_test(task: str, language: str = DEFAULT_LANGUAGE) -> str:
+    """Generate a test file for the given task description.
 
     Args:
         task: The coding task description.
+        language: Target programming language.
 
     Returns:
         Test source code as a string.
     """
-    result = _test_generator(task=task)
-    return _strip_fences(result.test_code)
+    lang_config = get_language_config(language)
+    result = _test_generator(
+        task=task,
+        language=lang_config.name,
+        test_instructions=lang_config.test_signature_doc,
+    )
+    return _strip_fences(result.test_code, language)
 
 
-def run_tests(code: str, test_code: str, timeout: int = 30, install_deps: bool = True) -> dict:
-    """Run pytest on generated code + test in an isolated temp directory.
+def run_tests(code: str, test_code: str, timeout: int = 30, language: str = DEFAULT_LANGUAGE, install_deps: bool = True) -> dict:
+    """Run tests on generated code + test in an isolated temp directory.
 
     Args:
-        code: The generated source code (written as solution.py).
-        test_code: The pytest test file (written as test_solution.py).
+        code: The generated source code.
+        test_code: The test file.
         timeout: Maximum seconds before killing the subprocess.
-        install_deps: Whether to auto-install third-party dependencies via uv.
+        language: Target programming language.
+        install_deps: Whether to auto-install third-party dependencies via uv (Python only).
 
     Returns:
         Dict with keys: passed (bool), stdout (str), stderr (str), error (str|None).
     """
+    lang_config = get_language_config(language)
     workdir = Path(tempfile.mkdtemp(prefix="redcodegen_test_"))
     try:
-        (workdir / "solution.py").write_text(code, encoding="utf-8")
-        (workdir / "test_solution.py").write_text(test_code, encoding="utf-8")
+        (workdir / lang_config.solution_file).write_text(code, encoding="utf-8")
+        (workdir / lang_config.test_file).write_text(test_code, encoding="utf-8")
 
-        use_uv = False
-        if install_deps:
-            modules = extract_imports(code, test_code)
-            packages = resolve_packages(modules)
-            if packages:
-                use_uv = create_uv_env(workdir, packages)
+        # TODO: jank branch code duplication that preserves python-specific behavior
+        if language == "python":
+            use_uv = False
+            if install_deps:
+                modules = extract_imports(code, test_code)
+                packages = resolve_packages(modules)
+                if packages:
+                    use_uv = create_uv_env(workdir, packages)
 
-        if use_uv:
-            cmd = ["uv", "run", "pytest", "test_solution.py", "-v", "--tb=short"]
+            if use_uv:
+                cmd = ["uv", "run", "pytest", lang_config.test_file, "-v", "--tb=short"]
+            else:
+                cmd = ["python", "-m", "pytest", lang_config.test_file, "-v", "--tb=short"]
         else:
-            cmd = ["python", "-m", "pytest", "test_solution.py", "-v", "--tb=short"]
+            # Non-Python: use the language-specific test runner
+            cmd = lang_config.test_runner + [lang_config.test_file] + lang_config.test_runner_args
+            # For shell-based runners (java, c), the test_file is baked into the command
+            needs_shell = len(lang_config.test_runner) >= 2 and lang_config.test_runner[0] == "bash" and lang_config.test_runner[1] == "-c"
+            if needs_shell:
+                cmd = lang_config.test_runner + lang_config.test_runner_args
 
         result = subprocess.run(
             cmd,
@@ -122,8 +145,15 @@ def run_tests(code: str, test_code: str, timeout: int = 30, install_deps: bool =
             timeout=timeout,
             env={**__import__("os").environ, "PYTHONPATH": str(workdir)},
         )
-        counts = _parse_pytest_counts(result.stdout)
-        test_results = _parse_test_results(result.stdout)
+
+        # Use pytest-specific parsing for pytest, generic for others
+        if lang_config.test_framework == "pytest":
+            counts = _parse_pytest_counts(result.stdout)
+            test_results = _parse_test_results(result.stdout)
+        else:
+            counts = {"num_tests": 0, "num_passed": 0, "num_failed": 0}
+            test_results = []
+
         return {
             "passed": result.returncode == 0,
             "stdout": result.stdout,
@@ -158,18 +188,16 @@ def run_tests(code: str, test_code: str, timeout: int = 30, install_deps: bool =
         _cleanup(workdir)
 
 
-def generate_test_with_model(task: str, test_lm: dspy.LM) -> str:
-    """Generate a pytest test file using a specific LM (the test model).
-
-    Uses dspy.settings.context to temporarily override the global LM,
-    keeping the test model scoped and separate from the code model.
+def generate_test_with_model(task: str, test_lm: dspy.LM, language: str = DEFAULT_LANGUAGE) -> str:
+    """Generate a test file using a specific LM (the test model).
 
     Args:
         task: The coding task description.
         test_lm: The DSPy LM instance to use for test generation.
+        language: Target programming language.
 
     Returns:
         Test source code as a string.
     """
     with dspy.settings.context(lm=test_lm):
-        return generate_test(task)
+        return generate_test(task, language)

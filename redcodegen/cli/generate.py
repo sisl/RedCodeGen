@@ -199,7 +199,7 @@ def generate_scenarios(config: GenerateConfig):
             # Generate scenarios using test_lm
             logger.info(f"  Generating {config.min_samples} scenario(s) using test model...")
             with dspy.settings.context(lm=test_lm):
-                scenario_data = gen_scenarios(cwe_id, min_scenarios=config.min_samples)
+                scenario_data = gen_scenarios(cwe_id, min_scenarios=config.min_samples, language=config.language)
             scenarios = scenario_data["scenarios"]
 
             scenario_results = []
@@ -217,14 +217,14 @@ def generate_scenarios(config: GenerateConfig):
                 # Generate test using test_lm
                 test_code = None
                 try:
-                    test_code = generate_test_with_model(scenario, test_lm)
+                    test_code = generate_test_with_model(scenario, test_lm, language=config.language)
                     logger.info("    Test generated successfully")
                 except Exception as e:
                     logger.warning(f"    Test generation failed: {e}")
 
                 # Generate K rollouts using code_lm (global default)
                 logger.info(f"    Generating {config.num_rollouts} rollout(s)...")
-                codes = run_k(scenario, config.num_rollouts, test_code=test_code or "")
+                codes = run_k(scenario, config.num_rollouts, test_code=test_code or "", language=config.language)
 
                 # Evaluate rollouts in parallel (I/O-bound: tests + semgrep)
                 # Implement this inline to avoid having to repeatedly pass the tests
@@ -232,7 +232,7 @@ def generate_scenarios(config: GenerateConfig):
                     passes_tests = None
                     test_details = None
                     if test_code is not None:
-                        test_result = run_tests(code, test_code)
+                        test_result = run_tests(code, test_code, language=config.language)
                         passes_tests = test_result["passed"]
                         test_details = {
                             "num_tests": test_result["num_tests"],
@@ -243,7 +243,7 @@ def generate_scenarios(config: GenerateConfig):
 
                     vulnerabilities = []
                     try:
-                        vulnerabilities = evaluate(code, analysis_tool=config.analysis_tool)
+                        vulnerabilities = evaluate(code, analysis_tool=config.analysis_tool, language=config.language)
                     except Exception as e:
                         logger.warning(f"    Evaluation failed: {e}")
 
@@ -340,6 +340,7 @@ def generate_scenarios(config: GenerateConfig):
 
 @app.command()
 def generate(
+    ctx: typer.Context,
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose output"),
     model: str = typer.Option("openai/gpt-4o-mini", "--model", "-m", help="The LLM model to use for code generation (model under test)"),
     temperature: float = typer.Option(1.0, "--temperature", "-t", help="Sampling temperature for generation"),
@@ -364,10 +365,14 @@ def generate(
     per scenario for pass@N evaluation.
     """
 
+    ctx.ensure_object(dict)
+    language = ctx.obj.get("language", "python")
+
     config = GenerateConfig(
         verbose=verbose,
         model=model,
         temperature=temperature,
+        language=language,
         cwes=cwes,
         use_top_25=use_top_25,
         min_samples=min_samples,

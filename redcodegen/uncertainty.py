@@ -8,6 +8,7 @@ from loguru import logger
 from redcodegen.generator.prompting import run_k
 from redcodegen.validator import evaluate
 from redcodegen.kernels import Kernel
+from redcodegen.language import DEFAULT_LANGUAGE
 
 @dataclass
 class FailureBeta:
@@ -16,7 +17,7 @@ class FailureBeta:
 
 def quantify(
         prompt, threshold=0.015, min_rollouts=5, no_fail_prior=1,
-        fail_prior=1, return_evaluations=False
+        fail_prior=1, return_evaluations=False, language=DEFAULT_LANGUAGE,
 ) -> FailureBeta:
     """Given prompt, we perform k rollouts or until variance threshold dips below threshold to obtain a beta distribution over failures.
 
@@ -35,7 +36,7 @@ def quantify(
     evaluations_cache = {}
 
     while var > threshold:
-        results = run_k(prompt, k) # the first few will be cached, making this work
+        results = run_k(prompt, k, language=language) # the first few will be cached, making this work
 
         # see which evaluations have been completed, and which ones have not
         evaluations = []
@@ -49,7 +50,7 @@ def quantify(
 
         # launch evaluation jobs for remaining items in parallel
         for code in remaining:
-            evaluation = evaluate(code)
+            evaluation = evaluate(code, language=language)
             evaluations_cache[code] = evaluation
             evaluations.append(evaluation)
 
@@ -82,7 +83,7 @@ def quantify(
     )
 
 
-def mcmc(tau: str, kernel: Kernel, turns=100, find_failure=True, symmetric=False, threshold=0.015) -> list[Tuple[str, FailureBeta]]:
+def mcmc(tau: str, kernel: Kernel, turns=100, find_failure=True, symmetric=False, threshold=0.015, language=DEFAULT_LANGUAGE) -> list[Tuple[str, FailureBeta]]:
     """Run MCMC step; provide tau and a kernel, and we'll give tau'.
 
     We will keep sampling prompts until one acceptance happens,
@@ -109,7 +110,7 @@ def mcmc(tau: str, kernel: Kernel, turns=100, find_failure=True, symmetric=False
                                     (fd.failure_pseudocounts + fd.nominal_pseudocounts -2))
 
     # compute distirbution of initial sample
-    fail_dist = quantify(tau, threshold)
+    fail_dist = quantify(tau, threshold, language=language)
     samples = [(tau, fail_dist)]
 
     for i in range(turns):
@@ -118,7 +119,7 @@ def mcmc(tau: str, kernel: Kernel, turns=100, find_failure=True, symmetric=False
         # get next sample
         (tau, fail_dist) = samples[-1]
         tau_prime = kernel.sample(tau, state=(i+1)*(1 if find_failure else -1))
-        fail_dist_prime = quantify(tau_prime, threshold)
+        fail_dist_prime = quantify(tau_prime, threshold, language=language)
 
         bonus = 0.0
         if not symmetric:

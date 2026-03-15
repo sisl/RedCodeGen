@@ -3,6 +3,7 @@ from typing import List, Optional
 from redcodegen.seeds import seed_scenarios
 from cwe2.database import Database
 from redcodegen.constants import CODEQL_LIBRARIES
+from redcodegen.language import get_language_config, DEFAULT_LANGUAGE
 
 class ExtractScenarios(dspy.Signature):
     """Given the weakness description, provide a few tasks that would exercise the vulnerability"""
@@ -45,16 +46,18 @@ class SuggestLibraries(dspy.Signature):
     rephrased_task: str = dspy.OutputField(desc="rephrase the task in terms of the chosen library, or say None")
 suggest_libraries = dspy.Predict(SuggestLibraries)
 
-def generate(cwe_id, min_scenarios=3):
+def generate(cwe_id, min_scenarios=3, language=DEFAULT_LANGUAGE):
     """Given a CWE ID, generate a sample with name, description, and coding scenarios that would exercise the vulnerability
 
     Args:
         cwe_id (int): CWE identifier
         min_scenarios (int): Minimum number of scenarios to generate
+        language (str): Target programming language
     Returns:
         dict: A dictionary containing the name, description, and scenarios
     """
 
+    lang_config = get_language_config(language)
     db = Database()
     entry = db.get(cwe_id)
     output_scenarios = []
@@ -64,7 +67,7 @@ def generate(cwe_id, min_scenarios=3):
                                       config={"rollout_id": len(output_scenarios)}).scenarios
         output_scenarios.extend(scenarios)
     scenarios = [strip_vulnerability(scenario=i).coding_task for i in output_scenarios]
-    suggestions = [suggest_libraries(task=i, suggested_libraries=CODEQL_LIBRARIES) for i in scenarios]
+    suggestions = [suggest_libraries(task=i, suggested_libraries=lang_config.suggested_libraries) for i in scenarios]
     results = [
         i.rephrased_task if ((i.rephrased_task is not None) and (i.rephrased_task.lower().strip() != "none")) else j
         for i,j in zip(suggestions, scenarios)
@@ -76,11 +79,13 @@ def generate(cwe_id, min_scenarios=3):
         "scenarios": results
     }
 
-def regenerate(path=None, str=None, n=3):
+def regenerate(path=None, str=None, n=3, language=DEFAULT_LANGUAGE):
     """Given a path or string to an example file, obtain a coding task"""
 
     if path is None and str is None:
         raise ValueError("Either path or str must be provided")
+
+    lang_config = get_language_config(language)
 
     if str is not None:
         example_file = str
@@ -97,7 +102,7 @@ def regenerate(path=None, str=None, n=3):
         for i in coding_task
     ]
     sugestions = [
-        suggest_libraries(task=i, suggested_libraries=CODEQL_LIBRARIES)
+        suggest_libraries(task=i, suggested_libraries=lang_config.suggested_libraries)
         for i in coding_task
     ]
 

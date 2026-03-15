@@ -69,6 +69,7 @@ def append_propose_record(record: dict[str, Any], output_path: Path):
 
 @app.command()
 def propose(
+    ctx: typer.Context,
     output: Path = typer.Option(..., "--output", "-o", help="Output JSONL file for proposed prompts"),
     base_model: str = typer.Option(..., "--base-model", "-b", help="Base model for ProposalDistribution (e.g., Qwen/Qwen2.5-0.5B-Instruct)"),
     peft: str | None = typer.Option(None, "--peft", "-p", help="Optional PEFT adapter path"),
@@ -90,6 +91,9 @@ def propose(
     evaluates their reliability through multiple code generation rollouts.
     """
     configure_logging(verbose)
+
+    ctx.ensure_object(dict)
+    language = ctx.obj.get("language", "python")
 
     # Configure DSPy with specified model for code generation
     lm = create_lm(
@@ -197,7 +201,7 @@ def propose(
 
                 try:
                     request = GenerateRequest(failure_type=vuln_type, goal=Goal.NOMINAL)
-                    nominal_prompt = proposal_dist.generate(request)
+                    nominal_prompt = proposal_dist.generate(request, language=language)
                     logger.debug(f"    Prompt: {nominal_prompt[:100]}...")
 
                     # Quantify the nominal prompt
@@ -207,6 +211,7 @@ def propose(
                         threshold=variance_threshold,
                         min_rollouts=min_rollouts,
                         return_evaluations=True,
+                        language=language,
                     )
 
                     # Build and save record
@@ -233,7 +238,7 @@ def propose(
 
                 try:
                     request = GenerateRequest(failure_type=vuln_type, goal=Goal.FAILURE)
-                    failure_prompt = proposal_dist.generate(request)
+                    failure_prompt = proposal_dist.generate(request, language=language)
                     logger.debug(f"    Prompt: {failure_prompt[:100]}...")
 
                     # Quantify the failure prompt
@@ -243,6 +248,7 @@ def propose(
                         threshold=variance_threshold,
                         min_rollouts=min_rollouts,
                         return_evaluations=True,
+                        language=language,
                     )
 
                     # Build and save record

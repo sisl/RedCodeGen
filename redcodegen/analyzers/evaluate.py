@@ -11,15 +11,17 @@ from loguru import logger
 from .common import _cleanup, _source_tree_mtime_ns, AnalysisTool
 from .codeql import _run_codeql_analysis
 from .semgrep import _run_semgrep_analysis
+from redcodegen.language import get_language_config, DEFAULT_LANGUAGE
 
 @cache
-def evaluate(program: str, workdir: str = "/tmp", analysis_tool: AnalysisTool = AnalysisTool.SEMGREP) -> List[Dict[str, Any]]:
+def evaluate(program: str, workdir: str = "/tmp", analysis_tool: AnalysisTool = AnalysisTool.SEMGREP, language: str = DEFAULT_LANGUAGE) -> List[Dict[str, Any]]:
     """Evaluates program via codeql in a temporary workdir
 
     Args:
         program (str): The source code to evaluate
         workdir (str, optional): The working directory to use. Defaults to "/tmp".
         analysis_tool (AnalysisTool, optional): The analysis tool to use. Defaults to AnalysisTool.SEMGREP.
+        language (str, optional): Target programming language. Defaults to "python".
 
     Returns:
         List[Dict]: List of vulnerabilities found. Each dict contains:
@@ -33,21 +35,24 @@ def evaluate(program: str, workdir: str = "/tmp", analysis_tool: AnalysisTool = 
         FileNotFoundError: If CodeQL is not found in PATH
         subprocess.CalledProcessError: If CodeQL commands fail
     """
+    lang_config = get_language_config(language)
     workdir = Path(workdir)
     workdir.mkdir(parents=True, exist_ok=True)
     src_dir = Path(tempfile.mkdtemp(prefix="redcodegen_src_", dir=workdir))
 
     try:
-        # Write program to source directory
-        program_path = src_dir / "program.py"
+        # Write program to source directory; use .cpp for C/C++ so the
+        # compiler accepts both C and C++ code (LLMs often mix them).
+        ext = ".cpp" if lang_config.codeql_language == "cpp" else lang_config.extension
+        program_path = src_dir / f"program{ext}"
         program_path.write_text(program, encoding='utf-8')
 
         vulnerabilities = []
 
         if analysis_tool in (AnalysisTool.CODEQL, AnalysisTool.ALL):
             logger.debug("Evaluating with CodeQL")
-            vulnerabilities.extend(_run_codeql_analysis(src_dir, workdir))
-        
+            vulnerabilities.extend(_run_codeql_analysis(src_dir, workdir, language))
+
         if analysis_tool in (AnalysisTool.SEMGREP, AnalysisTool.ALL):
             logger.debug("Evaluating with Semgrep")
             vulnerabilities.extend(_run_semgrep_analysis(src_dir, workdir))
@@ -64,25 +69,26 @@ def _evaluate_codebase_cached(
     source_root: str,
     workdir: str,
     source_mtime_ns: int,
-    analysis_tool: AnalysisTool = AnalysisTool.SEMGREP
+    analysis_tool: AnalysisTool = AnalysisTool.SEMGREP,
+    language: str = DEFAULT_LANGUAGE,
 ) -> List[Dict[str, Any]]:
     # source_mtime_ns is included to invalidate cache when files change.
     del source_mtime_ns
-    
+
     vulnerabilities = []
-    
+
     if analysis_tool in (AnalysisTool.CODEQL, AnalysisTool.ALL):
         logger.debug("Evaluating codebase with CodeQL")
-        vulnerabilities.extend(_run_codeql_analysis(Path(source_root), Path(workdir)))
-    
+        vulnerabilities.extend(_run_codeql_analysis(Path(source_root), Path(workdir), language))
+
     if analysis_tool in (AnalysisTool.SEMGREP, AnalysisTool.ALL):
         logger.debug("Evaluating codebase with Semgrep")
         vulnerabilities.extend(_run_semgrep_analysis(Path(source_root), Path(workdir)))
-    
+
     return vulnerabilities
 
 
-def evaluate_codebase(path: str | Path, workdir: str | Path, analysis_tool: AnalysisTool = AnalysisTool.SEMGREP) -> List[Dict[str, Any]]:
+def evaluate_codebase(path: str | Path, workdir: str | Path, analysis_tool: AnalysisTool = AnalysisTool.SEMGREP, language: str = DEFAULT_LANGUAGE) -> List[Dict[str, Any]]:
     """Evaluate a whole codebase (directory) via CodeQL.
 
     Args:
@@ -107,7 +113,7 @@ def evaluate_codebase(path: str | Path, workdir: str | Path, analysis_tool: Anal
         raise NotADirectoryError(f"Codebase path must be a directory: {source_root}")
 
     source_mtime_ns = _source_tree_mtime_ns(source_root)
-    return _evaluate_codebase_cached(str(source_root), str(workdir_path), source_mtime_ns, analysis_tool)
+    return _evaluate_codebase_cached(str(source_root), str(workdir_path), source_mtime_ns, analysis_tool, language)
 
 
 def evaluate_diff(path: str | Path, workdir: str | Path, analysis_tool: AnalysisTool = AnalysisTool.SEMGREP) -> List[Dict[str, Any]]:

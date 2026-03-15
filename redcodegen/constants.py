@@ -156,18 +156,8 @@ SCENARIO_EXAMPLES = [
     )
 ]
 
-CODEQL_LIBRARIES = [
-    "Aioch", "Aiofile", "Aiofiles", "Aiohttp", "Aiomysql", "Aiopg", "Aiosqlite",
-    "Airspeed", "Anyio", "Asyncpg", "Asyncpg", "BSon", "Baize", "Bottle",
-    "CassandraDriver", "Chameleon", "Cherrypy", "Chevron", "ClickhouseDriver", "Cryptodome",
-    "Cryptography", "Cx_Oracle", "Dill", "Django", "Fabric", "FastApi", "Flask",
-    "FlaskAdmin", "FlaskSqlAlchemy", "Genshi", "Gradio", "Hdbcli", "Httpx",
-    "Idna", "Invoke", "Jinja2", "Jmespath", "Joblib", "JsonPickle", "Ldap",
-    "Ldap3", "Libtaxii", "Libxml2", "Lxml", "Mako", "MarkupSafe",
-    "Multidict", "MySQLdb", "Mysql", "Numpy", "Opml", "Oracledb", "PEP249", "Pandas",
-    "Paramiko", "Peewee", "Pexpect", "Phoenixdb", "Psycopg", "Psycopg2", "PyMongo",
-    "PyMySQL", "Pycurl", "Pydantic", "Pymssql", "Pyodbc", "Pyramid", "Requests", "RestFramework",
-    "Rsa", "RuamelYaml", "Sanic", "ServerLess", "Setuptools", "Simplejson", "SqlAlchemy",
-    "Starlette", "Stdlib", "Stdlib", "Streamlit", "TRender", "Toml", "Torch", "Tornado",
-    "Twisted", "Ujson", "Urllib3", "Werkzeug", "Xmltodict", "Yaml", "Yarl"
-]
+from redcodegen.language import get_language_config, DEFAULT_LANGUAGE
+
+# Backward-compatible alias: defaults to Python libraries from language config.
+# Prefer using get_language_config(lang).suggested_libraries for language-aware code.
+CODEQL_LIBRARIES = get_language_config(DEFAULT_LANGUAGE).suggested_libraries

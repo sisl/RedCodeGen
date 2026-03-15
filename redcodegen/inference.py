@@ -1,3 +1,0 @@
-"""
-inference.py
-"""
