@@ -10,6 +10,7 @@ class ExtractScenarios(dspy.Signature):
 
     name: str = dspy.InputField()
     description: str = dspy.InputField()
+    language: str = dspy.InputField(default="Python", desc="the programming language the task should be implemented in, mention this in the description")
     scenarios: list[str] = dspy.OutputField(desc="scenarios that exercises this weakness; follow examples you are given")
 
 class ExtractScenariosFromExample(dspy.Signature):
@@ -64,6 +65,7 @@ def generate(cwe_id, min_scenarios=3, language=DEFAULT_LANGUAGE):
     extract_scenarios = get_extract_scenarios()
     while len(output_scenarios) < min_scenarios:
         scenarios = extract_scenarios(name=entry.name, description=entry.extended_description,
+                                      language=lang_config.name,
                                       config={"rollout_id": len(output_scenarios)}).scenarios
         output_scenarios.extend(scenarios)
     scenarios = [strip_vulnerability(scenario=i).coding_task for i in output_scenarios]
@@ -94,7 +96,7 @@ def regenerate(path=None, str=None, n=3, language=DEFAULT_LANGUAGE):
             example_file = f.read()
 
     coding_task = [
-        extract_scenarios_from_example(example_file=example_file, config={"rollout_id": i}).scenarios
+        extract_scenarios_from_example(example_file=example_file, language=lang_config.name, config={"rollout_id": i}).scenarios
         for i in range(n)
     ]
     coding_task = [

@@ -146,6 +146,7 @@ def regenerate(
     api_base: str | None = typer.Option(None, "--api-base", help="API base URL (defaults to OPENAI_API_BASE env var)"),
     temperature: float = typer.Option(0.8, "--temperature", help="Temperature for code generation"),
     checkpoint: str | None = typer.Option(None, "--checkpoint", help="Path to local HuggingFace model checkpoint for code generation"),
+    coder_prompt: str | None = typer.Option(None, "--coder-prompt", "-c", help="Path to a JSON file with a hardened coder prompt to load"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose output"),
 ):
     """Regenerate code examples from a directory of example files or patch records."""
@@ -169,6 +170,12 @@ def regenerate(
     else:
         from redcodegen.generator import run_example
     from redcodegen.validator import evaluate
+
+    # Load hardened coder prompt if provided
+    if coder_prompt:
+        from redcodegen.generator.prompting import load_coder
+        load_coder(coder_prompt)
+        logger.info(f"Loaded hardened coder prompt from {coder_prompt}")
 
     output_path = output
 

@@ -15,6 +15,10 @@ class GenerateCode(dspy.Signature):
 
 coder = dspy.ChainOfThought(GenerateCode)
 
+def load_coder(path: str):
+    """Load a saved coder prompt/state from a JSON file, mutating the module-level coder in place."""
+    coder.load(path)
+
 def run(task, test_code="", language=DEFAULT_LANGUAGE):
     lang_config = get_language_config(language)
     code = coder(task=task, language=lang_config.name, test_code=test_code).code

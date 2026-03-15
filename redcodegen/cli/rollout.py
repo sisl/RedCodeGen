@@ -85,6 +85,7 @@ def rollout(
     api_key: str | None = typer.Option(None, "--api-key", help="API key (defaults to OPENAI_API_KEY env var)"),
     api_base: str | None = typer.Option(None, "--api-base", help="API base URL (defaults to OPENAI_API_BASE env var)"),
     temperature: float = typer.Option(0.8, "--temperature", help="Temperature for code generation"),
+    coder_prompt: str | None = typer.Option(None, "--coder-prompt", "-c", help="Path to a JSON file with a hardened coder prompt to load"),
     verbose: bool = typer.Option(False, "--verbose", help="Enable verbose output"),
 ):
     """Roll out amplified failure prompts to produce paired success/failure generations."""
@@ -101,6 +102,12 @@ def rollout(
     logger.info(f"Configured code generation model: {model}")
 
     from redcodegen.contrastive import rollout_k_pairs
+
+    # Load hardened coder prompt if provided
+    if coder_prompt:
+        from redcodegen.generator.prompting import load_coder
+        load_coder(coder_prompt)
+        logger.info(f"Loaded hardened coder prompt from {coder_prompt}")
 
     input_path = input
     output_path = output

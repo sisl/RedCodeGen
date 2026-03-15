@@ -123,6 +123,12 @@ def generate_scenarios(config: GenerateConfig):
     from redcodegen.test_gen import generate_test_with_model, run_tests
     from redcodegen.analyzers.evaluate import evaluate
 
+    # Load hardened coder prompt if provided
+    if config.coder_prompt:
+        from redcodegen.generator.prompting import load_coder
+        load_coder(config.coder_prompt)
+        logger.info(f"Loaded hardened coder prompt from {config.coder_prompt}")
+
     # Construct output path
     output_dir = Path(config.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -357,6 +363,7 @@ def generate(
     analysis_tool: AnalysisTool = typer.Option(AnalysisTool.SEMGREP.value, "--analysis-tool", "-a", help="Static analysis tool to use for evaluation (e.g., codeql, semgrep, all)"),
     reasoning_effort: str | None = typer.Option(None, "--reasoning-effort", help="Reasoning effort for code model (low, medium, high)"),
     checkpoint: str | None = typer.Option(None, "--checkpoint", help="Path to local HuggingFace model checkpoint for code generation"),
+    coder_prompt: str | None = typer.Option(None, "--coder-prompt", "-c", help="Path to a JSON file with a hardened coder prompt to load"),
 ):
     """Generate scenarios that induce vulnerabilities in LLM-generated code.
 
@@ -386,6 +393,7 @@ def generate(
         analysis_tool=analysis_tool,
         reasoning_effort=reasoning_effort,
         checkpoint=checkpoint,
+        coder_prompt=coder_prompt,
     )
 
     configure_logging(config.verbose)

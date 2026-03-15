@@ -8,6 +8,7 @@ from redcodegen.cli import amplify  # noqa: F401
 from redcodegen.cli import propose  # noqa: F401
 from redcodegen.cli import rollout  # noqa: F401
 from redcodegen.cli import explore  # noqa: F401
+from redcodegen.cli import optimize  # noqa: F401
 
 def main():
     app()
