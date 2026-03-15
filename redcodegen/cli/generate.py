@@ -112,7 +112,12 @@ def generate_scenarios(config: GenerateConfig):
     logger.info(f"Test model: {config.test_model}")
 
     # Import after configuring dspy
-    from redcodegen.generator import run_k
+    if config.generator is not None:
+        from redcodegen.generator.inference import run_k, init_model
+        init_model(config.generator)
+        logger.info(f"Using local inference model: {config.generator}")
+    else:
+        from redcodegen.generator import run_k
     from redcodegen.scenarios import generate as gen_scenarios
     from redcodegen.test_gen import generate_test_with_model, run_tests
     from redcodegen.analyzers.evaluate import evaluate
@@ -345,6 +350,7 @@ def generate(
     test_api_base: str | None = typer.Option(None, "--test-api-base", help="Base URL for the test model API (defaults to --api-base)"),
     analysis_tool: AnalysisTool = typer.Option(AnalysisTool.SEMGREP.value, "--analysis-tool", "-a", help="Static analysis tool to use for evaluation (e.g., codeql, semgrep, all)"),
     reasoning_effort: str | None = typer.Option(None, "--reasoning-effort", help="Reasoning effort for code model (low, medium, high)"),
+    generator: str | None = typer.Option(None, "--generator", "-g", help="Local HF model for code generation (default: None, uses prompting via DSPy)"),
 ):
     """Generate scenarios that induce vulnerabilities in LLM-generated code.
 
@@ -369,6 +375,7 @@ def generate(
         test_api_base=test_api_base or os.getenv("TEST_LLM_API_BASE"),
         analysis_tool=analysis_tool,
         reasoning_effort=reasoning_effort,
+        generator=generator,
     )
 
     configure_logging(config.verbose)

@@ -145,6 +145,7 @@ def regenerate(
     api_key: str | None = typer.Option(None, "--api-key", help="API key (defaults to OPENAI_API_KEY env var)"),
     api_base: str | None = typer.Option(None, "--api-base", help="API base URL (defaults to OPENAI_API_BASE env var)"),
     temperature: float = typer.Option(0.8, "--temperature", help="Temperature for code generation"),
+    generator: str | None = typer.Option(None, "--generator", "-g", help="Local HF model for code generation (default: None, uses prompting via DSPy)"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose output"),
 ):
     """Regenerate code examples from a directory of example files or patch records."""
@@ -161,7 +162,12 @@ def regenerate(
     logger.info(f"Configured model: {model}")
 
     # Import generator and validator after configuring dspy
-    from redcodegen.generator import run_example
+    if generator is not None:
+        from redcodegen.generator.inference import run_example, init_model
+        init_model(generator)
+        logger.info(f"Using local inference model: {generator}")
+    else:
+        from redcodegen.generator import run_example
     from redcodegen.validator import evaluate
 
     output_path = output

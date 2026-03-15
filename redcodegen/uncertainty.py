@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from loguru import logger
 # from multiprocessing import Pool
 
-from redcodegen.generator import run_k
+from redcodegen.generator.prompting import run_k
 from redcodegen.validator import evaluate
 from redcodegen.kernels import Kernel
 
