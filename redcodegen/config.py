@@ -21,7 +21,7 @@ class GenerateConfig(BaseConfig):
     test_api_key: str | None = None
     test_api_base: str | None = None
     num_rollouts: int = 10
-    generator: str | None = None
+    checkpoint: str | None = None
 
     @field_validator("reasoning_effort", mode="before")
     @classmethod

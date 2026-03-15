@@ -14,6 +14,7 @@ from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import (
+    Button,
     DataTable,
     Footer,
     Header,
@@ -27,6 +28,7 @@ from textual.widgets.tree import TreeNode
 from rich.text import Text
 
 from redcodegen.cli.app import app
+from redcodegen.test_env import build_script_footer, build_script_header
 from redcodegen.cli.common import read_config_record, read_data_records
 
 
@@ -57,6 +59,7 @@ class Vulnerability:
     message: str
     line: int | None
     analyzer: str
+    security_severity: float | None = None
 
 
 @dataclass
@@ -141,6 +144,23 @@ def _vuln_rate(numerator: int, denominator: int) -> str:
     return f"{numerator / denominator * 100:.1f}%"
 
 
+def _severity_stats(rollouts: list[Rollout]) -> dict[str, str]:
+    """Compute avg/min/max security severity across all vulnerabilities."""
+    severities = [
+        v.security_severity
+        for r in rollouts
+        for v in r.vulnerabilities
+        if v.security_severity is not None
+    ]
+    if not severities:
+        return {"severity_avg": "-", "severity_min": "-", "severity_max": "-"}
+    return {
+        "severity_avg": f"{sum(severities) / len(severities):.1f}",
+        "severity_min": f"{min(severities):.1f}",
+        "severity_max": f"{max(severities):.1f}",
+    }
+
+
 def _compute_rollout_stats(rollouts: list[Rollout]) -> dict[str, Any]:
     """Compute aggregate statistics for a list of rollouts."""
     total = len(rollouts)
@@ -157,7 +177,11 @@ def _compute_rollout_stats(rollouts: list[Rollout]) -> dict[str, Any]:
         1 for r in rollouts if r.passes_tests is False and r.vulnerabilities
     )
 
-    return {
+    # Aggregate individual test case counts
+    total_tests = sum(r.test_details.num_tests for r in rollouts if r.test_details)
+    total_tests_passed = sum(r.test_details.num_passed for r in rollouts if r.test_details)
+
+    result = {
         "total": total,
         "passing": passing,
         "failing": failing,
@@ -170,7 +194,12 @@ def _compute_rollout_stats(rollouts: list[Rollout]) -> dict[str, Any]:
         "vuln_rate": _vuln_rate(with_vulns, total),
         "vuln_rate_passing": _vuln_rate(passing_with_vulns, passing),
         "vuln_rate_failing": _vuln_rate(failing_with_vulns, failing),
+        "total_tests": total_tests,
+        "total_tests_passed": total_tests_passed,
+        "test_pass_rate": _vuln_rate(total_tests_passed, total_tests),
     }
+    result.update(_severity_stats(rollouts))
+    return result
 
 
 def _format_stats_block(stats: dict[str, Any]) -> str:
@@ -187,9 +216,14 @@ def _format_stats_block(stats: dict[str, Any]) -> str:
         f"  Clean:         {stats['without_vulns']}",
         f"Total findings:  {stats['total_findings']}",
         "",
+        f"Test pass rate: {stats['test_pass_rate']} ({stats['total_tests_passed']}/{stats['total_tests']} tests)",
+        "",
         f"Vulnerability rate (overall):        {stats['vuln_rate']}",
         f"Vulnerability rate (tests passing):  {stats['vuln_rate_passing']}",
         f"Vulnerability rate (tests failing):  {stats['vuln_rate_failing']}",
+        "",
+        f"Security severity  avg: {stats['severity_avg']}  "
+        f"min: {stats['severity_min']}  max: {stats['severity_max']}",
     ]
     return "\n".join(lines)
 
@@ -238,15 +272,18 @@ def _parse_vulnerabilities(raw: Any) -> list[Vulnerability]:
             return []
     if not isinstance(raw, list):
         return []
-    return [
-        Vulnerability(
+    vulns = []
+    for v in raw:
+        sev_raw = v.get("security_severity")
+        sev = float(sev_raw) if sev_raw is not None else None
+        vulns.append(Vulnerability(
             rule=v.get("rule", "unknown"),
             message=v.get("message", ""),
             line=v.get("line"),
             analyzer=v.get("analyzer", "unknown"),
-        )
-        for v in raw
-    ]
+            security_severity=sev,
+        ))
+    return vulns
 
 
 def _parse_test_details(raw: Any) -> TestDetails | None:
@@ -418,7 +455,9 @@ class SavePairScreen(ModalScreen[str | None]):
                 d = Path(dirpath)
                 d.mkdir(parents=True, exist_ok=True)
                 (d / "solution.py").write_text(self._code)
-                (d / "test_solution.py").write_text(self._tests)
+                header = build_script_header(self._code, self._tests)
+                footer = build_script_footer()
+                (d / "test_solution.py").write_text(header + self._tests + footer)
                 self.dismiss(dirpath)
             except OSError as e:
                 self.app.notify(f"Error saving: {e}", severity="error")
@@ -450,6 +489,7 @@ class PytestCommandScreen(ModalScreen[None]):
                 id="pytest-input",
                 select_on_focus=True,
             )
+            yield Button("Copy to clipboard", id="copy-btn")
             yield Label(
                 "Press Escape or Enter to close",
                 classes="hint-label",
@@ -457,6 +497,11 @@ class PytestCommandScreen(ModalScreen[None]):
 
     def on_mount(self) -> None:
         self.query_one("#pytest-input", Input).focus()
+
+    @on(Button.Pressed, "#copy-btn")
+    def on_copy(self, event: Button.Pressed) -> None:
+        self.app.copy_to_clipboard(self._command)
+        self.app.notify("Copied to clipboard")
 
     def action_close(self) -> None:
         self.dismiss(None)
@@ -587,6 +632,10 @@ DataTable {
     margin-bottom: 1;
 }
 
+#copy-btn {
+    margin: 1 0;
+}
+
 .hint-label {
     color: $text-muted;
     text-style: italic;
@@ -654,6 +703,7 @@ class ExploreApp(App[None]):
         self._show_root_view()
 
     def _populate_tree(self) -> None:
+        self._cwes.sort(key=lambda c: c.cwe_id)
         tree = self.query_one("#nav-tree", CWETree)
         root = tree.root
         total_r = sum(c.total_rollouts for c in self._cwes)
@@ -758,9 +808,11 @@ class ExploreApp(App[None]):
 
         # CWE summary table
         table = DataTable()
-        table.add_columns(
+        col_keys = table.add_columns(
             "CWE", "Scenarios", "Rollouts", "Pass", "Fail",
+            "Test Pass Rate",
             "Vuln Rate", "Vuln Rate (Tests Pass)", "Vuln Rate (Tests Fail)",
+            "Sev Avg", "Sev Min", "Sev Max",
         )
         for cwe in self._cwes:
             cwe_rollouts = [r for s in cwe.scenarios for r in s.rollouts]
@@ -771,12 +823,17 @@ class ExploreApp(App[None]):
                 str(cs["total"]),
                 str(cs["passing"]),
                 str(cs["failing"]),
+                cs["test_pass_rate"],
                 cs["vuln_rate"],
                 cs["vuln_rate_passing"],
                 cs["vuln_rate_failing"],
+                cs["severity_avg"],
+                cs["severity_min"],
+                cs["severity_max"],
             )
         container.mount(Static("CWE Overview:", classes="detail-section"))
         container.mount(table)
+        table.sort(col_keys[6], key=_sort_key, reverse=True)
 
     def _show_cwe_view(self, cwe_idx: int) -> None:
         self._clear_detail()
@@ -793,9 +850,11 @@ class ExploreApp(App[None]):
 
         # Scenario table
         table = DataTable()
-        table.add_columns(
+        col_keys = table.add_columns(
             "#", "Description", "Rollouts", "Pass", "Fail",
+            "Test Pass Rate",
             "Vuln Rate", "Vuln Rate (Tests Pass)", "Vuln Rate (Tests Fail)",
+            "Sev Avg", "Sev Min", "Sev Max",
         )
         for si, scenario in enumerate(cwe.scenarios):
             desc = scenario.description[:50]
@@ -805,10 +864,13 @@ class ExploreApp(App[None]):
             table.add_row(
                 str(si + 1), desc, str(ss["total"]),
                 str(ss["passing"]), str(ss["failing"]),
+                ss["test_pass_rate"],
                 ss["vuln_rate"], ss["vuln_rate_passing"], ss["vuln_rate_failing"],
+                ss["severity_avg"], ss["severity_min"], ss["severity_max"],
             )
         container.mount(Static("Scenarios:", classes="detail-section"))
         container.mount(table)
+        table.sort(col_keys[6], key=_sort_key, reverse=True)
 
     def _show_scenario_view(self, cwe_idx: int, scenario_idx: int) -> None:
         self._clear_detail()
@@ -852,7 +914,10 @@ class ExploreApp(App[None]):
 
         # Rollout table
         table = DataTable()
-        table.add_columns("#", "Status", "Passed", "Failed", "Vulns", "Lines")
+        col_keys = table.add_columns(
+            "#", "Status", "Passed", "Failed", "Test Pass Rate",
+            "Vulns", "Sev Avg", "Lines",
+        )
         for ri, rollout in enumerate(scenario.rollouts):
             status = "?"
             if rollout.passes_tests is True:
@@ -862,17 +927,22 @@ class ExploreApp(App[None]):
             td = rollout.test_details
             passed_str = str(td.num_passed) if td else "-"
             failed_str = str(td.num_failed) if td else "-"
+            pass_rate = _vuln_rate(td.num_passed, td.num_tests) if td else "-"
             line_count = rollout.code.count("\n") + 1
+            sev = _severity_stats([rollout])
             table.add_row(
                 str(ri + 1),
                 status,
                 passed_str,
                 failed_str,
+                pass_rate,
                 str(len(rollout.vulnerabilities)),
+                sev["severity_avg"],
                 str(line_count),
             )
         container.mount(Static("Rollouts:", classes="detail-section"))
         container.mount(table)
+        table.sort(col_keys[5], key=_sort_key, reverse=True)
 
     def _show_rollout_view(
         self, cwe_idx: int, scenario_idx: int, rollout_idx: int
@@ -946,12 +1016,13 @@ class ExploreApp(App[None]):
         # Vulnerability table
         if rollout.vulnerabilities:
             table = DataTable()
-            table.add_columns("Rule", "Message", "Line", "Analyzer")
+            table.add_columns("Rule", "Message", "Line", "Severity", "Analyzer")
             for v in rollout.vulnerabilities:
                 table.add_row(
                     v.rule,
                     v.message[:80],
                     str(v.line) if v.line else "-",
+                    f"{v.security_severity:.1f}" if v.security_severity is not None else "-",
                     v.analyzer,
                 )
             container.mount(
@@ -1073,7 +1144,7 @@ class ExploreApp(App[None]):
         def on_dismiss(result: str | None) -> None:
             if result:
                 self.notify(f"Saved pair to {result}/")
-                cmd = f"pytest {result}/test_solution.py -v"
+                cmd = f"uv run {result}/test_solution.py"
                 self.push_screen(PytestCommandScreen(cmd))
 
         self.push_screen(

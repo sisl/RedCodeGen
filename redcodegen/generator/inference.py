@@ -5,7 +5,6 @@ inference-based code generator
 import dspy
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
-from redcodegen.scenarios import generate, regenerate
 
 CACHED_GENERATOR = None
 DEFAULT_MODEL = None
@@ -18,10 +17,10 @@ def _get_generator():
         init_model(DEFAULT_MODEL)
     return CACHED_GENERATOR
 
-def init_model(model):
+def init_model(model, temperature=1.0):
     global CACHED_GENERATOR, DEFAULT_MODEL
     DEFAULT_MODEL = model
-    CACHED_GENERATOR = CodeGenerator(model)
+    CACHED_GENERATOR = CodeGenerator(model, temperature=temperature)
     return CACHED_GENERATOR
 
 def set_model(model):
@@ -36,7 +35,8 @@ class CodeCleaner(dspy.Signature):
 cleaner = dspy.Predict(CodeCleaner)
 
 class CodeGenerator:
-    def __init__(self, model):
+    def __init__(self, model, temperature=1.0):
+        self.temperature = temperature
         self.model = AutoModelForCausalLM.from_pretrained(
             model,
             device_map="auto",
@@ -72,26 +72,35 @@ class CodeGenerator:
             padding=True,
             return_tensors="pt"
         ).to(self.device)
-        result = self.model.generate(**inputs, max_new_tokens=1000, pad_token_id=self.tokenizer.eos_token_id)
+        generate_kwargs = dict(
+            **inputs,
+            max_new_tokens=1000,
+            pad_token_id=self.tokenizer.eos_token_id,
+            temperature=self.temperature,
+            do_sample=(self.temperature > 0),
+        )
+        result = self.model.generate(**generate_kwargs)
         decoded = self.tokenizer.batch_decode(result, skip_special_tokens=True)
         code = decoded[0].split("assistant\n")[-1].strip()
         return cleaner(inp=code.replace("```python", "").replace("```", "").strip()).code
 
 
-def run(task):
+def run(task, test_code=""):
     gen = _get_generator()
     return gen.generate(task)
 
-def run_k(task, k):
+def run_k(task, k, max_workers=None, test_code=""):
     gen = _get_generator()
     return [gen.generate(task) for _ in range(k)]
 
 def run_cwe(cwe_id, min_scenarios=3):
+    from redcodegen.scenarios import generate
     gen = _get_generator()
     scenarios = generate(cwe_id, min_scenarios=min_scenarios)["scenarios"]
     return [gen.generate(scenario) for scenario in scenarios]
 
 def run_example(path=None, str=None, min_scenarios=3):
+    from redcodegen.scenarios import regenerate
     gen = _get_generator()
     scenarios = regenerate(path, str, n=min_scenarios)
     results = [gen.generate(scenario) for scenario in scenarios]

@@ -145,7 +145,7 @@ def regenerate(
     api_key: str | None = typer.Option(None, "--api-key", help="API key (defaults to OPENAI_API_KEY env var)"),
     api_base: str | None = typer.Option(None, "--api-base", help="API base URL (defaults to OPENAI_API_BASE env var)"),
     temperature: float = typer.Option(0.8, "--temperature", help="Temperature for code generation"),
-    generator: str | None = typer.Option(None, "--generator", "-g", help="Local HF model for code generation (default: None, uses prompting via DSPy)"),
+    checkpoint: str | None = typer.Option(None, "--checkpoint", help="Path to local HuggingFace model checkpoint for code generation"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose output"),
 ):
     """Regenerate code examples from a directory of example files or patch records."""
@@ -162,10 +162,10 @@ def regenerate(
     logger.info(f"Configured model: {model}")
 
     # Import generator and validator after configuring dspy
-    if generator is not None:
+    if checkpoint is not None:
         from redcodegen.generator.inference import run_example, init_model
-        init_model(generator)
-        logger.info(f"Using local inference model: {generator}")
+        init_model(checkpoint, temperature=temperature)
+        logger.info(f"Using local checkpoint: {checkpoint}")
     else:
         from redcodegen.generator import run_example
     from redcodegen.validator import evaluate

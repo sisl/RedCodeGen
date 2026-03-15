@@ -10,6 +10,15 @@ class AnalysisTool(Enum):
     SEMGREP = "semgrep"
     ALL = "all"
 
+
+# SARIF defaultConfiguration.level → representative CVSS-range numeric severity.
+# Used as fallback when properties.security-severity (CodeQL) is absent (Semgrep).
+_SARIF_LEVEL_SEVERITY: dict[str, float] = {
+    "error": 8.0,    # High (CVSS 7.0–8.9)
+    "warning": 5.0,  # Medium (CVSS 4.0–6.9)
+    "note": 2.0,     # Low (CVSS 0.1–3.9)
+}
+
 def _parse_sarif(sarif_path: Path, analysis_tool: AnalysisTool) -> List[Dict[str, Any]]:
     """Parse SARIF output file and extract vulnerability information.
 
@@ -71,7 +80,17 @@ def _parse_sarif(sarif_path: Path, analysis_tool: AnalysisTool) -> List[Dict[str
                             # Try to extract CWE from rule ID (e.g., py/sql-injection -> CWE-89)
                             # This is heuristic-based
                             pass
+                    severity_raw = rule.get('properties', {}).get('security-severity')
+                    if severity_raw is not None:
+                        vuln['security_severity'] = float(severity_raw)
+                    else:
+                        level = rule.get('defaultConfiguration', {}).get('level')
+                        vuln['security_severity'] = _SARIF_LEVEL_SEVERITY.get(level)
                     break
+            else:
+                vuln['security_severity'] = None
+        else:
+            vuln['security_severity'] = None
 
         del vuln["cwe"]
         vuln["analyzer"] = analysis_tool.value # Set the analyzer

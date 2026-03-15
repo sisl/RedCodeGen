@@ -6,6 +6,7 @@ from pathlib import Path
 import dspy
 
 from redcodegen.analyzers.common import _cleanup
+from redcodegen.test_env import extract_imports, resolve_packages, create_uv_env
 
 
 class GenerateTest(dspy.Signature):
@@ -84,13 +85,14 @@ def generate_test(task: str) -> str:
     return _strip_fences(result.test_code)
 
 
-def run_tests(code: str, test_code: str, timeout: int = 30) -> dict:
+def run_tests(code: str, test_code: str, timeout: int = 30, install_deps: bool = True) -> dict:
     """Run pytest on generated code + test in an isolated temp directory.
 
     Args:
         code: The generated source code (written as solution.py).
         test_code: The pytest test file (written as test_solution.py).
         timeout: Maximum seconds before killing the subprocess.
+        install_deps: Whether to auto-install third-party dependencies via uv.
 
     Returns:
         Dict with keys: passed (bool), stdout (str), stderr (str), error (str|None).
@@ -100,8 +102,20 @@ def run_tests(code: str, test_code: str, timeout: int = 30) -> dict:
         (workdir / "solution.py").write_text(code, encoding="utf-8")
         (workdir / "test_solution.py").write_text(test_code, encoding="utf-8")
 
+        use_uv = False
+        if install_deps:
+            modules = extract_imports(code, test_code)
+            packages = resolve_packages(modules)
+            if packages:
+                use_uv = create_uv_env(workdir, packages)
+
+        if use_uv:
+            cmd = ["uv", "run", "pytest", "test_solution.py", "-v", "--tb=short"]
+        else:
+            cmd = ["python", "-m", "pytest", "test_solution.py", "-v", "--tb=short"]
+
         result = subprocess.run(
-            ["python", "-m", "pytest", "test_solution.py", "-v", "--tb=short"],
+            cmd,
             cwd=str(workdir),
             capture_output=True,
             text=True,
