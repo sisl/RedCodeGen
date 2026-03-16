@@ -99,6 +99,7 @@ def run_sft(
         hf_output: If set, convert final params to HF and save here.
     """
     config_path = str(Path(config_path).resolve())
+    out_folder = str(Path(out_folder).resolve())
     suffix = Path(config_path).stem + "_" + implementation.replace("/", "_")
 
     # Tokenize
