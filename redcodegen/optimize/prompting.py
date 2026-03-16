@@ -15,6 +15,8 @@ from redcodegen.generator.prompting import GenerateCode
 class OptimizeMethods(str, Enum):
     GEPA = "gepa"
     MIPRO = "mipro"
+    SFT = "sft"
+    CONTRASTIVE = "contrastive"
 
 
 class AnalyzerFusedFeedback(GEPAFeedbackMetric):

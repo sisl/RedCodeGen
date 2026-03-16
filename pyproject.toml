@@ -48,6 +48,18 @@ dev = [
     "seaborn>=0.13.2",
 ]
 
+# libthx is https://github.com/Jemoka/theseus/
+# which is my training infra
+cuda13 = [
+    "libthx[cuda13,fever]>=0.1.6",
+]
+cuda12 = [
+    "libthx[cuda12,fever]>=0.1.6",
+]
+cpu = [
+    "libthx[cpu,fever]>=0.1.6",
+]
+
 [tool.uv.build-backend]
 module-name = "redcodegen"
 module-root = ""
