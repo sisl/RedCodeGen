@@ -73,7 +73,12 @@ def convert_to_hf(
     logger.info(f"Converting {n_layers}-layer {backbone} params to HF state dict...")
     sd = call_to_hf(backbone, params, n_layers, hf_cfg)
 
-    torch_sd = {k: torch.from_numpy(np.array(jax.device_get(v))) for k, v in sd.items()}
+    logger.info(f"Transferring {len(sd)} tensors from JAX to PyTorch...")
+    # Batch device_get to avoid per-tensor sync overhead
+    keys = list(sd.keys())
+    values = jax.device_get(list(sd.values()))
+    torch_sd = {k: torch.from_numpy(np.asarray(v)) for k, v in zip(keys, values)}
+    logger.info("Transfer complete, loading into HF model...")
     hf_model = AutoModelForCausalLM.from_config(hf_cfg)
     missing, unexpected = hf_model.load_state_dict(torch_sd, strict=False)
     if missing:
