@@ -127,6 +127,8 @@ def run_contrastive(
         q.config.logging.report_interval = report_interval
 
         j = q.create()
+        j()
+
         params = j.state.params
 
         if hf_output is not None:
