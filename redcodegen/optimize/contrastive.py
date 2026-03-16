@@ -107,7 +107,7 @@ def run_contrastive(
     with quick("rcg_hardening_contrastive", run_name, str(out_folder), project=project, group=group) as q:
         q.config.architecture.backbone.implementation = backbone
         q.config.training.evaluate = False
-        q.config.training.validation = True
+        q.config.training.validation = False
         q.config.architecture.dtype.param = "bfloat16"
         q.config.architecture.dtype.activation = "bfloat16"
         q.config.architecture.backbone.weights = implementation

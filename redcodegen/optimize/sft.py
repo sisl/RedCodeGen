@@ -117,7 +117,7 @@ def run_sft(
         q.config.architecture.backbone.implementation = backbone
         q.config.architecture.backbone.weights = implementation
         q.config.training.evaluate = False
-        q.config.training.validation = True
+        q.config.training.validation = False
         q.config.architecture.dtype.param = "bfloat16"
         q.config.architecture.dtype.activation = "bfloat16"
         q.config.training.dataset = [{
