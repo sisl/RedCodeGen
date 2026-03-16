@@ -136,6 +136,8 @@ def run_sft(
         q.config.logging.report_interval = report_interval
 
         j = q.create()
+        j()
+
         params = j.state.params
 
         # Convert to HF while params are still live inside the quick context
