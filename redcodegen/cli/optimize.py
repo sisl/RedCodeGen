@@ -39,6 +39,7 @@ def optimize(
     batch_size: int = typer.Option(16, "--batch-size", help="[sft/contrastive] Effective batch size after gradient accumulation"),
     per_device_batch_size: int = typer.Option(2, "--per-device-batch-size", help="[sft/contrastive] Actual batch size per device per step"),
     lr: float = typer.Option(1e-4, "--lr", help="[sft/contrastive] Learning rate"),
+    tokens: int = typer.Option(50_000, "--tokens", help="[sft/contrastive] Total number of training tokens"),
     wandb_enabled: bool = typer.Option(False, "--wandb", help="[sft/contrastive] Enable W&B logging"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose output"),
 ):
@@ -68,6 +69,7 @@ def optimize(
             batch_size=batch_size,
             per_device_batch_size=per_device_batch_size,
             lr=lr,
+            tokens=tokens,
             wandb_enabled=wandb_enabled,
         )
     else:
@@ -186,6 +188,7 @@ def _run_training(
     batch_size: int,
     per_device_batch_size: int,
     lr: float,
+    tokens: int,
     wandb_enabled: bool,
 ) -> None:
     """Run SFT or contrastive model training."""
@@ -206,6 +209,7 @@ def _run_training(
             per_device_batch_size=per_device_batch_size,
             lr=lr,
             wandb_enabled=wandb_enabled,
+            tokens=tokens,
             hf_output=output,
         )
     elif method == OptimizeMethods.CONTRASTIVE:
@@ -223,6 +227,7 @@ def _run_training(
             per_device_batch_size=per_device_batch_size,
             lr=lr,
             wandb_enabled=wandb_enabled,
+            tokens=tokens,
             hf_output=output,
         )
 

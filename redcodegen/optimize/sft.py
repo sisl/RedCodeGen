@@ -72,6 +72,7 @@ def run_sft(
     per_device_batch_size: int = 2,
     lr: float = 1e-4,
     wandb_enabled: bool = False,
+    tokens: int = 50_000,
     validation_interval: int = 128,
     checkpoint_interval: int = 128,
     report_interval: int = 4,
@@ -91,6 +92,7 @@ def run_sft(
         per_device_batch_size: Per-device batch size.
         lr: Learning rate.
         wandb_enabled: Whether to enable W&B logging.
+        tokens: Total number of training tokens.
         validation_interval: Steps between validation runs.
         checkpoint_interval: Steps between checkpoints.
         report_interval: Steps between metric reports.
@@ -124,6 +126,7 @@ def run_sft(
             "style": "PADDED",
             "suffix": suffix,
         }]
+        q.config.training.tokens = tokens
         q.config.training.batch_size = batch_size
         q.config.training.per_device_batch_size = per_device_batch_size
         q.config.optimization.lr = lr
