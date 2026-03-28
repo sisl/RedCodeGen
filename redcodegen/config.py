@@ -23,6 +23,8 @@ class GenerateConfig(BaseConfig):
     test_api_base: str | None = None
     num_rollouts: int = 10
     checkpoint: str | None = None
+    tk_checkpoint: str | None = None
+    tk_model: str | None = None
     coder_prompt: str | None = None
 
     @field_validator("reasoning_effort", mode="before")

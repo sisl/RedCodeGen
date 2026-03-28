@@ -101,7 +101,17 @@ def generate_scenarios(config: GenerateConfig):
     )
     logger.info(f"Test model: {config.test_model}")
 
-    if config.checkpoint:
+    if config.tk_checkpoint:
+        # Tinker checkpoint mode: use Tinker sampling client for code generation
+        if not config.tk_model:
+            logger.error("--tk-model is required when using --tk-checkpoint")
+            raise typer.Exit(code=1)
+        from redcodegen.generator.inference_tk import init_tk_model
+        from redcodegen.generator.inference_tk import run_k
+        init_tk_model(config.tk_model, config.tk_checkpoint, temperature=config.temperature)
+        dspy.configure(lm=test_lm)
+        logger.info(f"Using Tinker checkpoint: {config.tk_checkpoint} (model: {config.tk_model})")
+    elif config.checkpoint:
         # Local checkpoint mode: use HF model for code generation, test_lm for everything else
         from redcodegen.generator.inference import init_model
         from redcodegen.generator.inference import run_k
@@ -134,7 +144,9 @@ def generate_scenarios(config: GenerateConfig):
     output_dir.mkdir(parents=True, exist_ok=True)
 
     temperature_str = f't{config.temperature}'.replace('.', 'p')
-    if config.checkpoint:
+    if config.tk_checkpoint:
+        model_str = "tk_" + Path(config.tk_checkpoint).name.replace('-', '_')
+    elif config.checkpoint:
         model_str = Path(config.checkpoint).name.replace('-', '_')
     else:
         model_str = config.model.split('/')[-1].replace('-', '_')
@@ -363,6 +375,8 @@ def generate(
     analysis_tool: AnalysisTool = typer.Option(AnalysisTool.SEMGREP.value, "--analysis-tool", "-a", help="Static analysis tool to use for evaluation (e.g., codeql, semgrep, all)"),
     reasoning_effort: str | None = typer.Option(None, "--reasoning-effort", help="Reasoning effort for code model (low, medium, high)"),
     checkpoint: str | None = typer.Option(None, "--checkpoint", help="Path to local HuggingFace model checkpoint for code generation"),
+    tk_checkpoint: str | None = typer.Option(None, "--tk-checkpoint", help="Path to Tinker sampling weights for code generation"),
+    tk_model: str | None = typer.Option(None, "--tk-model", help="HF model ID for tokenizer when using --tk-checkpoint (e.g. Qwen/Qwen3-4B-Instruct-2507)"),
     coder_prompt: str | None = typer.Option(None, "--coder-prompt", "-c", help="Path to a JSON file with a hardened coder prompt to load"),
 ):
     """Generate scenarios that induce vulnerabilities in LLM-generated code.
@@ -393,6 +407,8 @@ def generate(
         analysis_tool=analysis_tool,
         reasoning_effort=reasoning_effort,
         checkpoint=checkpoint,
+        tk_checkpoint=tk_checkpoint,
+        tk_model=tk_model,
         coder_prompt=coder_prompt,
     )
 

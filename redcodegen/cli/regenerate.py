@@ -146,6 +146,8 @@ def regenerate(
     api_base: str | None = typer.Option(None, "--api-base", help="API base URL (defaults to OPENAI_API_BASE env var)"),
     temperature: float = typer.Option(0.8, "--temperature", help="Temperature for code generation"),
     checkpoint: str | None = typer.Option(None, "--checkpoint", help="Path to local HuggingFace model checkpoint for code generation"),
+    tk_checkpoint: str | None = typer.Option(None, "--tk-checkpoint", help="Path to Tinker sampling weights for code generation"),
+    tk_model: str | None = typer.Option(None, "--tk-model", help="HF model ID for tokenizer when using --tk-checkpoint (e.g. Qwen/Qwen3-4B-Instruct-2507)"),
     coder_prompt: str | None = typer.Option(None, "--coder-prompt", "-c", help="Path to a JSON file with a hardened coder prompt to load"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose output"),
 ):
@@ -163,7 +165,14 @@ def regenerate(
     logger.info(f"Configured model: {model}")
 
     # Import generator and validator after configuring dspy
-    if checkpoint is not None:
+    if tk_checkpoint is not None:
+        if not tk_model:
+            logger.error("--tk-model is required when using --tk-checkpoint")
+            raise typer.Exit(code=1)
+        from redcodegen.generator.inference_tk import run_example, init_tk_model
+        init_tk_model(tk_model, tk_checkpoint, temperature=temperature)
+        logger.info(f"Using Tinker checkpoint: {tk_checkpoint} (model: {tk_model})")
+    elif checkpoint is not None:
         from redcodegen.generator.inference import run_example, init_model
         init_model(checkpoint, temperature=temperature)
         logger.info(f"Using local checkpoint: {checkpoint}")

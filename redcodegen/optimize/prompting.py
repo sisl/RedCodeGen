@@ -16,7 +16,9 @@ class OptimizeMethods(str, Enum):
     GEPA = "gepa"
     MIPRO = "mipro"
     SFT = "sft"
+    SFT_TK = "sft_tk"
     CONTRASTIVE = "contrastive"
+    CONTRASTIVE_TK = "contrastive_tk"
 
 
 class AnalyzerFusedFeedback(GEPAFeedbackMetric):

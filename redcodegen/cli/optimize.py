@@ -19,7 +19,7 @@ def optimize(
     ctx: typer.Context,
     input_file: Path = typer.Option(..., "--input", "-i", help="Input JSONL file: from generate command (gepa/mipro/sft) or contrastive rollout pipeline (contrastive)"),
     output: Path = typer.Option(..., "--output", "-o", help="Output path: optimized prompt JSON (gepa/mipro) or HF model directory (sft/contrastive)"),
-    method: OptimizeMethods = typer.Option(..., "--method", help="Optimization method (gepa, mipro, sft, contrastive)"),
+    method: OptimizeMethods = typer.Option(..., "--method", help="Optimization method (gepa, mipro, sft, sft_tk, contrastive, contrastive_tk)"),
     # Prompt optimization options (gepa, mipro)
     analysis_tool: AnalysisTool = typer.Option(AnalysisTool.SEMGREP.value, "--analysis-tool", "-a", help="[gepa/mipro] Static analysis tool for evaluation"),
     model: str = typer.Option("openai/gpt-4o-mini", "--model", "-m", help="[gepa/mipro] Model for code generation (module under optimization)"),
@@ -41,21 +41,40 @@ def optimize(
     lr: float = typer.Option(1e-4, "--lr", help="[sft/contrastive] Learning rate"),
     tokens: int = typer.Option(50_000, "--tokens", help="[sft/contrastive] Total number of training tokens"),
     wandb_enabled: bool = typer.Option(False, "--wandb", help="[sft/contrastive] Enable W&B logging"),
+    # Tinker training options (sft_tk, contrastive_tk)
+    epochs: int = typer.Option(10, "--epochs", help="[sft_tk/contrastive_tk] Number of training epochs"),
+    seed: int = typer.Option(7, "--seed", help="[sft_tk/contrastive_tk] Random seed for shuffling"),
+    lora_rank: int = typer.Option(32, "--lora-rank", help="[sft_tk/contrastive_tk] LoRA rank for the training adapter"),
+    dpo_beta: float = typer.Option(0.1, "--dpo-beta", help="[contrastive_tk] DPO beta parameter"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose output"),
 ):
     """Optimize code generation to reduce vulnerabilities.
 
     Supports prompt optimization (GEPA, MIPROv2) and model fine-tuning (SFT,
-    contrastive learning). For prompt methods, reads generation results and
-    produces a hardened prompt. For training methods, runs tokenization and
-    training via theseus.
+    SFT_TK, contrastive, contrastive_tk). For prompt methods, reads generation
+    results and produces a hardened prompt. For training methods, runs
+    tokenization and training via theseus (sft/contrastive) or tinker
+    (sft_tk/contrastive_tk).
     """
     configure_logging(verbose)
 
     ctx.ensure_object(dict)
     language = ctx.obj.get("language", "python")
 
-    if method in (OptimizeMethods.SFT, OptimizeMethods.CONTRASTIVE):
+    if method in (OptimizeMethods.SFT_TK, OptimizeMethods.CONTRASTIVE_TK):
+        _run_training_tk(
+            method=method,
+            input_file=input_file,
+            implementation=implementation,
+            output_name=run_name,
+            lr=lr,
+            batch_size=batch_size,
+            epochs=epochs,
+            seed=seed,
+            lora_rank=lora_rank,
+            dpo_beta=dpo_beta,
+        )
+    elif method in (OptimizeMethods.SFT, OptimizeMethods.CONTRASTIVE):
         _run_training(
             method=method,
             input_file=input_file,
@@ -232,3 +251,49 @@ def _run_training(
         )
 
     logger.info(f"{method.value} training complete.")
+
+
+def _run_training_tk(
+    method: OptimizeMethods,
+    input_file: Path,
+    implementation: str,
+    output_name: str,
+    lr: float,
+    batch_size: int,
+    epochs: int,
+    seed: int,
+    lora_rank: int,
+    dpo_beta: float,
+) -> None:
+    """Run Tinker-based training (SFT or DPO contrastive)."""
+    logger.info(f"Running Tinker {method.value} training: {implementation}")
+
+    if method == OptimizeMethods.SFT_TK:
+        from redcodegen.optimize import run_sft_tk
+
+        sampling_path = run_sft_tk(
+            config_path=input_file,
+            implementation=implementation,
+            output_name=output_name,
+            lr=lr,
+            batch_size=batch_size,
+            epochs=epochs,
+            seed=seed,
+            lora_rank=lora_rank,
+        )
+    elif method == OptimizeMethods.CONTRASTIVE_TK:
+        from redcodegen.optimize import run_contrastive_tk
+
+        sampling_path = run_contrastive_tk(
+            config_path=input_file,
+            implementation=implementation,
+            output_name=output_name,
+            lr=lr,
+            batch_size=batch_size,
+            epochs=epochs,
+            seed=seed,
+            dpo_beta=dpo_beta,
+            lora_rank=lora_rank,
+        )
+
+    logger.info(f"Tinker {method.value} training complete. Sampling weights: {sampling_path}")

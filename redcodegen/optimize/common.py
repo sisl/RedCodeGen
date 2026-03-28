@@ -26,6 +26,13 @@ def template(prompt: str, label: str) -> list[ChatTurn]:
         ChatTurn(role="assistant", message=label),
     ]
 
+def template_to_dict(tmpl: list[ChatTurn]) -> list[dict]:
+    """convert ChatTurn style templates to HF compatible templates"""
+
+    return [
+        {"role": i.role, "content": i.message}
+        for i in tmpl
+    ]
 
 def call_to_hf(impl: str, params: Any, n_layers: int, hf_cfg: Any) -> dict:
     """Dispatch to the appropriate theseus→HF state dict converter."""

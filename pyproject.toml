@@ -29,6 +29,7 @@ dependencies = [
     "textual>=1.0.0",
     "typer>=0.23.0",
     "transformers>=5.1.0",
+    "tinker>=0.16.1",
 ]
 
 [project.scripts]
