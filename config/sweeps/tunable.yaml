@@ -1,0 +1,66 @@
+# Tunable Model Sweep
+# -------------------
+# 10x10 generate sweep (10 scenarios x 10 rollouts per CWE) across tunable
+# open-weight models and the GPT family for comparison.
+#
+# Models:
+#   GPT family (OpenAI API):
+#     - gpt-5.4-nano, gpt-5.4-mini, gpt-5.4, gpt-5.3-codex
+#   Qwen Coder scaling series (7B, 14B dense + 35B-A3B MoE):
+#     - Qwen2.5-Coder-7B-Instruct, Qwen2.5-Coder-14B-Instruct, Qwen3.5-35B-A3B
+#   LLaMA:
+#     - CodeLlama-7b-Instruct-hf
+#
+# Usage:
+#   rcg sweep generate -r config/sweeps/tunable.yaml
+
+defaults:
+  - min_samples=10
+  - num_rollouts=10
+
+runs:
+  # GPT models (OpenAI API)
+  - name: gpt-5.4-nano
+    overrides:
+      - model=openai/gpt-5.4-nano
+    api_key_env: OPENAI_API_KEY
+
+  - name: gpt-5.4-mini
+    overrides:
+      - model=openai/gpt-5.4-mini
+    api_key_env: OPENAI_API_KEY
+
+  - name: gpt-5.4
+    overrides:
+      - model=openai/gpt-5.4
+    api_key_env: OPENAI_API_KEY
+
+  - name: gpt-5.3-codex
+    overrides:
+      - model=openai/gpt-5.3-codex
+    api_key_env: OPENAI_API_KEY
+
+  # Open-weight models (vLLM)
+  - name: codellama-7b-instruct
+    overrides:
+      - model=openai/codellama/CodeLlama-7b-Instruct-hf
+      - api_base=http://grandtarghee.stanford.edu:8001/v1
+      - api_key=token-abc123
+
+  - name: qwen2.5-coder-7b-instruct
+    overrides:
+      - model=openai/Qwen/Qwen2.5-Coder-7B-Instruct
+      - api_base=http://bend.stanford.edu:8002/v1
+      - api_key=token-abc123
+
+  - name: qwen2.5-coder-14b-instruct
+    overrides:
+      - model=openai/Qwen/Qwen2.5-Coder-14B-Instruct
+      - api_base=http://wroclaw.stanford.edu:8001/v1
+      - api_key=token-abc123
+
+  - name: qwen3.5-35b-a3b
+    overrides:
+      - model=openai/Qwen/Qwen3.5-35B-A3B
+      - api_base=http://bend.stanford.edu:8001/v1
+      - api_key=token-abc123
