@@ -93,7 +93,7 @@ def _resolve_server_model_id(model_name: str, api_base: str, api_key: str | None
     return model_name
 
 _DEFAULT_MAX_TOKENS = 32000
-_PROMPT_HEADROOM = 1024
+_PROMPT_HEADROOM = 8192
 
 
 def _resolve_max_tokens(model_name: str, api_base: str | None, api_key: str | None) -> int:
