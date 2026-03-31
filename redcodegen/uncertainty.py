@@ -6,7 +6,8 @@ from loguru import logger
 # from multiprocessing import Pool
 
 from redcodegen.generator.prompting import run_k
-from redcodegen.validator import evaluate
+from redcodegen.analyzers.evaluate import evaluate
+from redcodegen.analyzers.common import AnalysisTool
 from redcodegen.kernels import Kernel
 from redcodegen.language import DEFAULT_LANGUAGE
 
@@ -18,6 +19,7 @@ class FailureBeta:
 def quantify(
         prompt, threshold=0.015, min_rollouts=5, no_fail_prior=1,
         fail_prior=1, language=DEFAULT_LANGUAGE,
+        analysis_tool: AnalysisTool = AnalysisTool.SEMGREP,
 ) -> Tuple[FailureBeta, list[dict]]:
     """Given prompt, perform k rollouts until variance threshold is met.
 
@@ -52,7 +54,7 @@ def quantify(
 
         # launch evaluation jobs for remaining items in parallel
         for code in remaining:
-            evaluation = evaluate(code, language=language)
+            evaluation = evaluate(code, analysis_tool=analysis_tool, language=language)
             evaluations_cache[code] = evaluation
             evaluations.append(evaluation)
             if evaluation:
@@ -81,7 +83,7 @@ def quantify(
     return beta, rollouts
 
 
-def mcmc(tau: str, kernel: Kernel, turns=100, find_failure=True, symmetric=False, threshold=0.015, language=DEFAULT_LANGUAGE) -> list[Tuple[str, FailureBeta, list[dict]]]:
+def mcmc(tau: str, kernel: Kernel, turns=100, find_failure=True, symmetric=False, threshold=0.015, language=DEFAULT_LANGUAGE, analysis_tool: AnalysisTool = AnalysisTool.SEMGREP) -> list[Tuple[str, FailureBeta, list[dict]]]:
     """Run MCMC chain starting from tau.
 
     Args:
@@ -109,7 +111,7 @@ def mcmc(tau: str, kernel: Kernel, turns=100, find_failure=True, symmetric=False
     logger.debug("mcmc: mode={}, turns={}, threshold={}, symmetric={}",
                  "failure" if find_failure else "success", turns, threshold, symmetric)
     logger.debug("mcmc: seed prompt={!r}", tau[:100])
-    fail_dist, rollouts = quantify(tau, threshold, language=language)
+    fail_dist, rollouts = quantify(tau, threshold, language=language, analysis_tool=analysis_tool)
     logger.debug("mcmc: seed quantified — beta={}, score={:.4f}, {} rollouts",
                  fail_dist, fail_estimate_fn(fail_dist), len(rollouts))
     samples = [(tau, fail_dist, rollouts)]
@@ -120,7 +122,7 @@ def mcmc(tau: str, kernel: Kernel, turns=100, find_failure=True, symmetric=False
         (tau, fail_dist, _) = samples[-1]
         tau_prime = kernel.sample(tau, state=(i+1)*(1 if find_failure else -1))
         logger.debug("mcmc: turn {}/{} — proposal={!r}", i+1, turns, tau_prime[:100])
-        fail_dist_prime, rollouts_prime = quantify(tau_prime, threshold, language=language)
+        fail_dist_prime, rollouts_prime = quantify(tau_prime, threshold, language=language, analysis_tool=analysis_tool)
 
         current_score = fail_estimate_fn(fail_dist)
         proposal_score = fail_estimate_fn(fail_dist_prime)

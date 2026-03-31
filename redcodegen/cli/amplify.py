@@ -104,6 +104,7 @@ def process_scenario_worker(
     from redcodegen.kernels import LMRephrasingKernel
     from redcodegen.uncertainty import mcmc
     from redcodegen.constants import create_lm
+    from redcodegen.analyzers.common import AnalysisTool as AT
     from redcodegen.test_gen import generate_test_with_model, run_tests
 
     # Set up logging for this worker process
@@ -156,6 +157,7 @@ def process_scenario_worker(
                     threshold=variance_threshold,
                     symmetric=True,
                     language=language,
+                    analysis_tool=AT(analysis_tool),
                 )[1:]  # crop seed
 
             # Run MCMC for failures (find vulnerable prompts)
@@ -168,6 +170,7 @@ def process_scenario_worker(
                 threshold=variance_threshold,
                 symmetric=True,
                 language=language,
+                analysis_tool=AT(analysis_tool),
             )[1:]  # crop seed
 
             # Generate test from seed using test model
