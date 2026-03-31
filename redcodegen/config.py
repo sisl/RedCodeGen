@@ -73,3 +73,40 @@ class GenerateConfig(BaseConfig):
     def to_record(self) -> dict:
         """Serialize config for JSONL output, excluding secrets and internal fields."""
         return self.model_dump(mode="json", exclude={"api_key", "test_api_key", "api_base", "test_api_base", "verbose"})
+
+
+class RegenerateConfig(BaseConfig):
+    dir: str | None = None
+    patches: str | None = None
+    min_samples: int = 3
+    output: str = "regenerate_results.jsonl"
+    model: str = "openai/gpt-4o-mini"
+    api_key: str | None = None
+    api_base: str | None = None
+    temperature: float = 0.8
+    checkpoint: str | None = None
+    tk_checkpoint: str | None = None
+    tk_model: str | None = None
+    coder_prompt: str | None = None
+
+
+class AmplifyConfig(BaseConfig):
+    input_file: str = ""
+    output: str = ""
+    mcmc_steps: int = 16
+    variance_threshold: float = 0.015
+    workers: int | None = None
+    filter_rule: list[str] = []
+    ignore_rule: list[str] = []
+    model: str = "openai/gpt-4o-mini"
+    api_key: str | None = None
+    api_base: str | None = None
+    temperature: float = 0.8
+    reasoning_effort: str | None = None
+    test_model: str = "openai/gpt-5.3-codex"
+    test_api_key: str | None = None
+    test_api_base: str | None = None
+    analysis_tool: str = "semgrep"
+    num_rollouts: int = 1
+    no_successes: bool = False
+    language: str = "python"

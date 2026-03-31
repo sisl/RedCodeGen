@@ -96,8 +96,8 @@ def generate_scenarios(config: GenerateConfig):
     test_lm = create_lm(
         model_name=config.test_model,
         temperature=config.temperature,
-        api_key=config.test_api_key or config.api_key,
-        api_base=config.test_api_base or config.api_base,
+        api_key=config.test_api_key,
+        api_base=config.test_api_base,
     )
     logger.info(f"Test model: {config.test_model}")
 

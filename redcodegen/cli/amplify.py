@@ -279,52 +279,38 @@ def file_writer_worker(write_queue, output_path: Path, total_scenarios: int):
             logger.error(f"  ✗ Failed to write record: {e}")
 
 
-@app.command()
-def amplify(
-    ctx: typer.Context,
-    input_file: Path = typer.Option(..., "--input", "-i", help="Input JSONL file from generate command"),
-    output: Path = typer.Option(..., "--output", "-o", help="Output JSONL file for amplified results"),
-    mcmc_steps: int = typer.Option(16, "--mcmc-steps", help="Number of MCMC turns"),
-    variance_threshold: float = typer.Option(0.015, "--variance-threshold", help="Beta variance threshold for stopping"),
-    workers: int | None = typer.Option(None, "--workers", "-w", help="Number of parallel workers (default: CPU count)"),
-    filter_rule: list[str] = typer.Option([], "--filter-rule", "-r", help="Specific rule(s) to process (can specify multiple times)"),
-    ignore_rule: list[str] = typer.Option([], "--ignore-rule", "-x", help="Rule(s) to ignore/exclude (can specify multiple times)"),
-    model: str = typer.Option("openai/gpt-4o-mini", "--model", "-m", help="Model identifier"),
-    api_key: str | None = typer.Option(None, "--api-key", help="API key (defaults to OPENAI_API_KEY env var)"),
-    api_base: str | None = typer.Option(None, "--api-base", help="API base URL (defaults to OPENAI_API_BASE env var)"),
-    temperature: float = typer.Option(0.8, "--temperature", help="Temperature for rephrasing"),
-    reasoning_effort: str | None = typer.Option(None, "--reasoning-effort", help="Reasoning effort for model (low, medium, high)"),
-    test_model: str = typer.Option("openai/gpt-5.3-codex", "--test-model", help="Model for test generation (trusted)"),
-    test_api_key: str | None = typer.Option(None, "--test-api-key", help="API key for the test model (defaults to --api-key)"),
-    test_api_base: str | None = typer.Option(None, "--test-api-base", help="Base URL for the test model API (defaults to --api-base)"),
-    analysis_tool: AnalysisTool = typer.Option(AnalysisTool.SEMGREP.value, "--analysis-tool", "-a", help="Static analysis tool for evaluation"),
-    num_rollouts: int = typer.Option(1, "--num-rollouts", "-k", help="Number of code rollouts per MCMC chain prompt"),
-    no_successes: bool = typer.Option(False, "--no-successes", help="Skip success MCMC chain (only run failure chain)"),
-    verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose output"),
-):
-    """Amplify vulnerable scenarios using MCMC to explore failure boundaries.
+def run_amplification(config):
+    """Core amplification logic, callable from both CLI and sweep."""
+    configure_logging(config.verbose)
 
-    Takes output from 'generate' command and runs MCMC to find nearby prompts
-    that both succeed (safe code) and fail (vulnerable code).
-    """
-    configure_logging(verbose)
-
-    ctx.ensure_object(dict)
-    language = ctx.obj.get("language", "python")
-
-    resolved_api_key = api_key or os.getenv("OPENAI_API_KEY")
-    resolved_api_base = api_base or os.getenv("OPENAI_API_BASE")
-    resolved_test_api_key = test_api_key or os.getenv("TEST_LLM_API_KEY")
-    resolved_test_api_base = test_api_base or os.getenv("TEST_LLM_API_BASE")
+    # Unpack config into local variables so existing logic stays unchanged
+    language = config.language
+    model = config.model
+    api_key = config.api_key
+    api_base = config.api_base
+    temperature = config.temperature
+    reasoning_effort = config.reasoning_effort
+    test_model = config.test_model
+    test_api_key = config.test_api_key
+    test_api_base = config.test_api_base
+    analysis_tool_str = config.analysis_tool
+    analysis_tool = AnalysisTool(analysis_tool_str)
+    mcmc_steps = config.mcmc_steps
+    variance_threshold = config.variance_threshold
+    num_rollouts = config.num_rollouts
+    no_successes = config.no_successes
+    filter_rule = config.filter_rule
+    ignore_rule = config.ignore_rule
+    verbose = config.verbose
 
     # Configure DSPy with specified model
-    lm = create_lm(model_name=model, temperature=temperature, api_key=resolved_api_key, api_base=resolved_api_base, reasoning_effort=reasoning_effort)
+    lm = create_lm(model_name=model, temperature=temperature, api_key=api_key, api_base=api_base, reasoning_effort=reasoning_effort)
     dspy.configure(lm=lm)
     logger.info(f"Configured model: {model}")
     logger.info(f"Test model: {test_model}")
 
-    input_path = input_file
-    output_path = output
+    input_path = Path(config.input_file)
+    output_path = Path(config.output)
 
     # Load input data
     logger.info(f"Loading input from {input_path}")
@@ -381,7 +367,7 @@ def amplify(
         logger.info(f"Resuming from existing output, will skip {len(processed_scenarios)} already-processed scenarios")
 
     # Set up parallelization
-    n_workers = workers if workers is not None else os.cpu_count()
+    n_workers = config.workers if config.workers is not None else os.cpu_count()
     logger.info(f"Using {n_workers} parallel workers")
 
     # Create manager and queues
@@ -430,15 +416,15 @@ def amplify(
                 mcmc_steps,
                 variance_threshold,
                 model,
-                resolved_api_key,
-                resolved_api_base,
+                api_key,
+                api_base,
                 temperature,
                 log_level,
                 reasoning_effort,
                 language,
                 test_model,
-                resolved_test_api_key,
-                resolved_test_api_base,
+                test_api_key,
+                test_api_base,
                 analysis_tool.value,
                 num_rollouts,
                 no_successes,
@@ -461,3 +447,61 @@ def amplify(
         logger.debug("Writer thread finished")
 
     logger.info(f"Completed! Processed {total_scenarios} scenarios saved to {output_path}")
+
+
+@app.command()
+def amplify(
+    ctx: typer.Context,
+    input_file: Path = typer.Option(..., "--input", "-i", help="Input JSONL file from generate command"),
+    output: Path = typer.Option(..., "--output", "-o", help="Output JSONL file for amplified results"),
+    mcmc_steps: int = typer.Option(16, "--mcmc-steps", help="Number of MCMC turns"),
+    variance_threshold: float = typer.Option(0.015, "--variance-threshold", help="Beta variance threshold for stopping"),
+    workers: int | None = typer.Option(None, "--workers", "-w", help="Number of parallel workers (default: CPU count)"),
+    filter_rule: list[str] = typer.Option([], "--filter-rule", "-r", help="Specific rule(s) to process (can specify multiple times)"),
+    ignore_rule: list[str] = typer.Option([], "--ignore-rule", "-x", help="Rule(s) to ignore/exclude (can specify multiple times)"),
+    model: str = typer.Option("openai/gpt-4o-mini", "--model", "-m", help="Model identifier"),
+    api_key: str | None = typer.Option(None, "--api-key", help="API key (defaults to OPENAI_API_KEY env var)"),
+    api_base: str | None = typer.Option(None, "--api-base", help="API base URL (defaults to OPENAI_API_BASE env var)"),
+    temperature: float = typer.Option(0.8, "--temperature", help="Temperature for rephrasing"),
+    reasoning_effort: str | None = typer.Option(None, "--reasoning-effort", help="Reasoning effort for model (low, medium, high)"),
+    test_model: str = typer.Option("openai/gpt-5.3-codex", "--test-model", help="Model for test generation (trusted)"),
+    test_api_key: str | None = typer.Option(None, "--test-api-key", help="API key for the test model (defaults to --api-key)"),
+    test_api_base: str | None = typer.Option(None, "--test-api-base", help="Base URL for the test model API (defaults to --api-base)"),
+    analysis_tool: AnalysisTool = typer.Option(AnalysisTool.SEMGREP.value, "--analysis-tool", "-a", help="Static analysis tool for evaluation"),
+    num_rollouts: int = typer.Option(1, "--num-rollouts", "-k", help="Number of code rollouts per MCMC chain prompt"),
+    no_successes: bool = typer.Option(False, "--no-successes", help="Skip success MCMC chain (only run failure chain)"),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose output"),
+):
+    """Amplify vulnerable scenarios using MCMC to explore failure boundaries.
+
+    Takes output from 'generate' command and runs MCMC to find nearby prompts
+    that both succeed (safe code) and fail (vulnerable code).
+    """
+    from redcodegen.config import AmplifyConfig
+
+    ctx.ensure_object(dict)
+    language = ctx.obj.get("language", "python")
+
+    config = AmplifyConfig(
+        input_file=str(input_file),
+        output=str(output),
+        mcmc_steps=mcmc_steps,
+        variance_threshold=variance_threshold,
+        workers=workers,
+        filter_rule=filter_rule,
+        ignore_rule=ignore_rule,
+        model=model,
+        api_key=api_key or os.getenv("OPENAI_API_KEY"),
+        api_base=api_base or os.getenv("OPENAI_API_BASE"),
+        temperature=temperature,
+        reasoning_effort=reasoning_effort,
+        test_model=test_model,
+        test_api_key=test_api_key or os.getenv("TEST_LLM_API_KEY"),
+        test_api_base=test_api_base or os.getenv("TEST_LLM_API_BASE"),
+        analysis_tool=analysis_tool.value,
+        num_rollouts=num_rollouts,
+        no_successes=no_successes,
+        language=language,
+        verbose=verbose,
+    )
+    run_amplification(config)

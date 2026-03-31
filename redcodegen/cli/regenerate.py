@@ -135,31 +135,30 @@ def append_to_jsonl(record: dict[str, Any], output_path: Path):
         writer.write(record)
 
 
-@app.command()
-def regenerate(
-    dir: str | None = typer.Option(None, "--dir", "-d", help="Input directory containing example files to regenerate"),
-    patches: str | None = typer.Option(None, "--patches", help="Input JSONL file with patch records (same format as evaluate)"),
-    min_samples: int = typer.Option(3, "--min-samples", "-n", help="Minimum samples per example"),
-    output: Path = typer.Option("regenerate_results.jsonl", "--output", "-o", help="Output JSONL file"),
-    model: str = typer.Option("openai/gpt-4o-mini", "--model", "-m", help="Model identifier"),
-    api_key: str | None = typer.Option(None, "--api-key", help="API key (defaults to OPENAI_API_KEY env var)"),
-    api_base: str | None = typer.Option(None, "--api-base", help="API base URL (defaults to OPENAI_API_BASE env var)"),
-    temperature: float = typer.Option(0.8, "--temperature", help="Temperature for code generation"),
-    checkpoint: str | None = typer.Option(None, "--checkpoint", help="Path to local HuggingFace model checkpoint for code generation"),
-    tk_checkpoint: str | None = typer.Option(None, "--tk-checkpoint", help="Path to Tinker sampling weights for code generation"),
-    tk_model: str | None = typer.Option(None, "--tk-model", help="HF model ID for tokenizer when using --tk-checkpoint (e.g. Qwen/Qwen3-4B-Instruct-2507)"),
-    coder_prompt: str | None = typer.Option(None, "--coder-prompt", "-c", help="Path to a JSON file with a hardened coder prompt to load"),
-    verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose output"),
-):
-    """Regenerate code examples from a directory of example files or patch records."""
-    configure_logging(verbose)
+def run_regeneration(config):
+    """Core regeneration logic, callable from both CLI and sweep."""
+    configure_logging(config.verbose)
+
+    # Unpack config into local variables so existing logic stays unchanged
+    input_dir = config.dir
+    patches = config.patches
+    min_samples = config.min_samples
+    output_path = Path(config.output)
+    model = config.model
+    api_key = config.api_key
+    api_base = config.api_base
+    temperature = config.temperature
+    checkpoint = config.checkpoint
+    tk_checkpoint = config.tk_checkpoint
+    tk_model = config.tk_model
+    coder_prompt = config.coder_prompt
 
     # Configure DSPy with specified model
     lm = create_lm(
         model_name=model,
         temperature=temperature,
-        api_key=api_key or os.getenv("OPENAI_API_KEY"),
-        api_base=api_base or os.getenv("OPENAI_API_BASE"),
+        api_key=api_key,
+        api_base=api_base,
     )
     dspy.configure(lm=lm)
     logger.info(f"Configured model: {model}")
@@ -186,9 +185,7 @@ def regenerate(
         load_coder(coder_prompt)
         logger.info(f"Loaded hardened coder prompt from {coder_prompt}")
 
-    output_path = output
-
-    if bool(dir) == bool(patches):
+    if bool(input_dir) == bool(patches):
         logger.error("Must specify exactly one of --dir or --patches")
         raise typer.BadParameter("Must specify exactly one of --dir or --patches")
 
@@ -307,7 +304,7 @@ def regenerate(
         return
 
     # --dir mode
-    input_path = Path(dir)
+    input_path = Path(input_dir)
     all_files = sorted([p for p in input_path.rglob("*") if p.is_file()], key=lambda p: str(p))
     if not all_files:
         logger.warning(f"No files found under {input_path}")
@@ -381,3 +378,39 @@ def regenerate(
             continue
 
     logger.info(f"Completed! Results saved to {output_path}")
+
+
+@app.command()
+def regenerate(
+    dir: str | None = typer.Option(None, "--dir", "-d", help="Input directory containing example files to regenerate"),
+    patches: str | None = typer.Option(None, "--patches", help="Input JSONL file with patch records (same format as evaluate)"),
+    min_samples: int = typer.Option(3, "--min-samples", "-n", help="Minimum samples per example"),
+    output: Path = typer.Option("regenerate_results.jsonl", "--output", "-o", help="Output JSONL file"),
+    model: str = typer.Option("openai/gpt-4o-mini", "--model", "-m", help="Model identifier"),
+    api_key: str | None = typer.Option(None, "--api-key", help="API key (defaults to OPENAI_API_KEY env var)"),
+    api_base: str | None = typer.Option(None, "--api-base", help="API base URL (defaults to OPENAI_API_BASE env var)"),
+    temperature: float = typer.Option(0.8, "--temperature", help="Temperature for code generation"),
+    checkpoint: str | None = typer.Option(None, "--checkpoint", help="Path to local HuggingFace model checkpoint for code generation"),
+    tk_checkpoint: str | None = typer.Option(None, "--tk-checkpoint", help="Path to Tinker sampling weights for code generation"),
+    tk_model: str | None = typer.Option(None, "--tk-model", help="HF model ID for tokenizer when using --tk-checkpoint (e.g. Qwen/Qwen3-4B-Instruct-2507)"),
+    coder_prompt: str | None = typer.Option(None, "--coder-prompt", "-c", help="Path to a JSON file with a hardened coder prompt to load"),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose output"),
+):
+    """Regenerate code examples from a directory of example files or patch records."""
+    from redcodegen.config import RegenerateConfig
+    config = RegenerateConfig(
+        dir=dir,
+        patches=patches,
+        min_samples=min_samples,
+        output=str(output),
+        model=model,
+        api_key=api_key or os.getenv("OPENAI_API_KEY"),
+        api_base=api_base or os.getenv("OPENAI_API_BASE"),
+        temperature=temperature,
+        checkpoint=checkpoint,
+        tk_checkpoint=tk_checkpoint,
+        tk_model=tk_model,
+        coder_prompt=coder_prompt,
+        verbose=verbose,
+    )
+    run_regeneration(config)
