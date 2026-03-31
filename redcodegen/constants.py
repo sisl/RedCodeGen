@@ -92,6 +92,35 @@ def _resolve_server_model_id(model_name: str, api_base: str, api_key: str | None
             return match
     return model_name
 
+_DEFAULT_MAX_TOKENS = 32000
+_PROMPT_HEADROOM = 1024
+
+
+def _resolve_max_tokens(model_name: str, api_base: str | None, api_key: str | None) -> int:
+    """Cap max_tokens to fit the model's context window.
+
+    For vLLM-served models, queries /models for max_model_len and reserves
+    headroom for prompt tokens.  Falls back to the default for OpenAI-hosted
+    models (which have large enough context windows).
+    """
+    if not api_base:
+        return _DEFAULT_MAX_TOKENS
+    try:
+        models = _fetch_server_models(api_base, api_key)
+        stripped = model_name.removeprefix("openai/")
+        for m in models:
+            mid = m.get("id", "")
+            if mid == stripped or stripped.endswith(mid.split("/")[-1]):
+                ctx = m.get("max_model_len")
+                if ctx and ctx < _DEFAULT_MAX_TOKENS + _PROMPT_HEADROOM:
+                    capped = max(_PROMPT_HEADROOM, ctx - _PROMPT_HEADROOM)
+                    logger.info(f"Capped max_tokens to {capped} (model context window: {ctx})")
+                    return capped
+    except Exception:
+        pass
+    return _DEFAULT_MAX_TOKENS
+
+
 def create_lm(model_name="openai/gpt-4o-mini", temperature=0.8, api_key=None, api_base=None, reasoning_effort=None):
     """Create a DSPy language model instance.
 
@@ -125,6 +154,8 @@ def create_lm(model_name="openai/gpt-4o-mini", temperature=0.8, api_key=None, ap
         configured_model = normalized_model
     logger.info(f"Configured model: {configured_model}")
 
+    max_tokens = _resolve_max_tokens(normalized_model, normalized_api_base, api_key)
+
     extra_kwargs = {}
     if reasoning_effort is not None:
         extra_kwargs["reasoning_effort"] = reasoning_effort
@@ -134,7 +165,7 @@ def create_lm(model_name="openai/gpt-4o-mini", temperature=0.8, api_key=None, ap
             normalized_model,
             api_key=api_key,
             temperature=temperature,
-            max_tokens=32000,
+            max_tokens=max_tokens,
             **extra_kwargs,
         )
     else:
@@ -143,7 +174,7 @@ def create_lm(model_name="openai/gpt-4o-mini", temperature=0.8, api_key=None, ap
             api_key=api_key,
             api_base=normalized_api_base,
             temperature=temperature,
-            max_tokens=32000,
+            max_tokens=max_tokens,
             **extra_kwargs,
         )
 

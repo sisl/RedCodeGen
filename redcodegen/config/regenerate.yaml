@@ -1,0 +1,11 @@
+verbose: true
+model: openai/gpt-4o-mini
+temperature: 0.8
+min_samples: 3
+output: ./output/sweeps/regenerate_results.jsonl
+api_key: null
+api_base: null
+checkpoint: null
+tk_checkpoint: null
+tk_model: null
+coder_prompt: null
