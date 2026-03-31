@@ -92,7 +92,7 @@ def _resolve_server_model_id(model_name: str, api_base: str, api_key: str | None
             return match
     return model_name
 
-_DEFAULT_MAX_TOKENS = 32000
+_DEFAULT_MAX_TOKENS = 16000
 _PROMPT_HEADROOM = 8192
 
 
