@@ -1,6 +1,7 @@
+import os
 import typer
 from loguru import logger
-import os
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 from hydra import compose, initialize_config_dir
 from omegaconf import OmegaConf
@@ -70,6 +71,20 @@ def _maybe_apply_api_key_env(flat: dict, run: dict) -> dict:
         merged["api_key"] = os.getenv(api_key_env)
     return merged
 
+
+def _run_generate_task(task):
+    """Worker function for parallel sweep execution.
+
+    Runs in a separate process for full isolation of DSPy global state,
+    module-level objects, and function caches.
+    """
+    cfg, run_name = task
+    configure_logging(verbose=cfg.verbose)
+    logger.info(f"[{run_name}] Starting generation...")
+    generate_scenarios(cfg)
+    logger.info(f"[{run_name}] Completed.")
+
+
 @sweep_app.command()
 def generate(
     config_name: str = "experiment",
@@ -84,10 +99,18 @@ def generate(
         resolve_path=True,
         help="YAML file with runs; each run requires Hydra 'overrides' plus optional api_key_env.",
     ),
+    workers: int | None = typer.Option(
+        None,
+        "--workers",
+        "-w",
+        help="Number of parallel workers (default: CPU count). Use 1 for serial execution.",
+    ),
 ):
     """Run a sweep of multiple generations across different CWEs."""
     configure_logging(verbose=False)
-    logger.info("Starting CWE generation sweep...")
+
+    n_workers = workers if workers is not None else os.cpu_count()
+    logger.info(f"Starting CWE generation sweep ({n_workers} worker(s))...")
 
     config_path = str(_resolve_config_dir())
     overrides = overrides or []
@@ -102,6 +125,8 @@ def generate(
 
     runs, run_defaults = _load_runs_config(runs_config) if runs_config else ([], [])
 
+    # Build all tasks inside Hydra context (compose is not process-safe)
+    tasks = []
     with initialize_config_dir(config_dir=config_path, version_base=None):
         for combo in combinations:
             base_overrides = [f"{k}={v}" for k, v in combo]
@@ -110,21 +135,47 @@ def generate(
                 hydra_cfg = compose(config_name=config_name, overrides=base_overrides)
                 flat = OmegaConf.to_container(hydra_cfg, resolve=True)
                 cfg = GenerateConfig(**flat)
-                configure_logging(verbose=cfg.verbose)
-                result = generate_scenarios(cfg)
-                logger.info(f"{base_overrides} [{cfg.model}] -> {result}")
-                continue
+                run_name = ", ".join(base_overrides) or "default"
+                tasks.append((cfg, run_name))
+            else:
+                for run in runs:
+                    run_overrides, run_name = _extract_run_overrides(run)
+                    all_overrides = run_defaults + base_overrides + run_overrides
+                    hydra_cfg = compose(config_name=config_name, overrides=all_overrides)
+                    flat = OmegaConf.to_container(hydra_cfg, resolve=True)
+                    run_flat = _maybe_apply_api_key_env(flat, run)
+                    cfg = GenerateConfig(**run_flat)
+                    tasks.append((cfg, run_name))
 
-            for run in runs:
-                run_overrides, run_name = _extract_run_overrides(run)
-                all_overrides = run_defaults + base_overrides + run_overrides
-                hydra_cfg = compose(config_name=config_name, overrides=all_overrides)
-                flat = OmegaConf.to_container(hydra_cfg, resolve=True)
-                run_flat = _maybe_apply_api_key_env(flat, run)
-                cfg = GenerateConfig(**run_flat)
-                configure_logging(verbose=cfg.verbose)
-                result = generate_scenarios(cfg)
-                logger.info(f"{all_overrides} [{run_name}] -> {result}")
+    logger.info(f"Prepared {len(tasks)} run(s)")
+
+    if n_workers <= 1 or len(tasks) <= 1:
+        # Serial execution
+        for cfg, run_name in tasks:
+            configure_logging(verbose=cfg.verbose)
+            logger.info(f"[{run_name}] Starting generation...")
+            generate_scenarios(cfg)
+            logger.info(f"[{run_name}] Completed.")
+    else:
+        # Parallel execution: each run gets its own process for full
+        # isolation of DSPy config, module-level state, and caches.
+        with ProcessPoolExecutor(max_workers=min(n_workers, len(tasks))) as pool:
+            future_to_name = {
+                pool.submit(_run_generate_task, task): task[1]
+                for task in tasks
+            }
+            completed = 0
+            failed = 0
+            for future in as_completed(future_to_name):
+                run_name = future_to_name[future]
+                try:
+                    future.result()
+                    completed += 1
+                except Exception as e:
+                    logger.error(f"[{run_name}] Failed: {e}")
+                    failed += 1
+
+        logger.info(f"Sweep finished: {completed} completed, {failed} failed out of {len(tasks)} runs")
 
 
 @sweep_app.callback(invoke_without_command=True)
