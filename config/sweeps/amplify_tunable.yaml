@@ -1,0 +1,64 @@
+# Tunable Model Amplify Sweep
+# ----------------------------
+# MCMC amplification of each model's own generated scenarios.
+# Each run pairs a model with its corresponding generate output.
+#
+# Usage:
+#   rcg sweep amplify -r config/sweeps/amplify_tunable.yaml
+
+defaults: []
+
+runs:
+  # GPT models (OpenAI API)
+  - name: gpt-5.4-nano
+    overrides:
+      - model=openai/gpt-5.4-nano
+      - input_file=./output/sweeps/generated_scenarios_gpt_5.4_nano_t1p0_n10_k10.jsonl
+    api_key_env: OPENAI_API_KEY
+
+  - name: gpt-5.4-mini
+    overrides:
+      - model=openai/gpt-5.4-mini
+      - input_file=./output/sweeps/generated_scenarios_gpt_5.4_mini_t1p0_n10_k10.jsonl
+    api_key_env: OPENAI_API_KEY
+
+  - name: gpt-5.4
+    overrides:
+      - model=openai/gpt-5.4
+      - input_file=./output/sweeps/generated_scenarios_gpt_5.4_t1p0_n10_k10.jsonl
+    api_key_env: OPENAI_API_KEY
+
+  - name: gpt-5.3-codex
+    overrides:
+      - model=openai/gpt-5.3-codex
+      - input_file=./output/sweeps/generated_scenarios_gpt_5.3_codex_t1p0_n10_k10.jsonl
+    api_key_env: OPENAI_API_KEY
+
+  # Open-weight models (vLLM)
+  - name: codellama-7b-instruct
+    overrides:
+      - model=openai/codellama/CodeLlama-7b-Instruct-hf
+      - api_base=http://grandtarghee.stanford.edu:8001/v1
+      - api_key=token-abc123
+      - input_file=./output/sweeps/generated_scenarios_CodeLlama_7b_Instruct_hf_t1p0_n10_k10.jsonl
+
+  - name: qwen2.5-coder-7b-instruct
+    overrides:
+      - model=openai/Qwen/Qwen2.5-Coder-7B-Instruct
+      - api_base=http://bend.stanford.edu:8002/v1
+      - api_key=token-abc123
+      - input_file=./output/sweeps/generated_scenarios_Qwen2.5_Coder_7B_Instruct_t1p0_n10_k10.jsonl
+
+  - name: qwen2.5-coder-14b-instruct
+    overrides:
+      - model=openai/Qwen/Qwen2.5-Coder-14B-Instruct
+      - api_base=http://wroclaw.stanford.edu:8001/v1
+      - api_key=token-abc123
+      - input_file=./output/sweeps/generated_scenarios_Qwen2.5_Coder_14B_Instruct_t1p0_n10_k10.jsonl
+
+  - name: qwen3.5-35b-a3b
+    overrides:
+      - model=openai/Qwen/Qwen3.5-35B-A3B
+      - api_base=http://bend.stanford.edu:8001/v1
+      - api_key=token-abc123
+      - input_file=./output/sweeps/generated_scenarios_Qwen3.5_35B_A3B_t1p0_n10_k10.jsonl

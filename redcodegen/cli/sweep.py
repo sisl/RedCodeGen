@@ -277,7 +277,7 @@ def sweep_amplify(
         None, "--workers", "-w",
         help="Number of parallel workers (default: CPU count). Use 1 for serial execution.",
     ),
-    input_file: str = typer.Option(..., "--input", "-i", help="Input JSONL file from generate command"),
+    input_file: str | None = typer.Option(None, "--input", "-i", help="Input JSONL file from generate command (overrides per-run input_file)"),
     output_dir: str = typer.Option("./output/sweeps/", "--output-dir", "-o", help="Output directory for results"),
 ):
     """Run a sweep of amplifications across different models."""
@@ -286,10 +286,10 @@ def sweep_amplify(
     logger.info(f"Starting amplification sweep ({n_workers} worker(s))...")
 
     def _post_build(cfg, run_name):
-        cfg = cfg.model_copy(update={
-            "input_file": input_file,
-            "output": _auto_output_path(output_dir, "amplify", cfg.model, cfg.temperature),
-        })
+        updates = {"output": _auto_output_path(output_dir, "amplify", cfg.model, cfg.temperature)}
+        if input_file:
+            updates["input_file"] = input_file
+        cfg = cfg.model_copy(update=updates)
         return cfg
 
     tasks = _build_sweep_tasks(config_name, overrides, runs_config, AmplifyConfig, post_build=_post_build)
