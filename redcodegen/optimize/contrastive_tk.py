@@ -12,7 +12,10 @@ from loguru import logger
 import tinker
 from tinker import types
 
-from redcodegen.optimize.common import template, template_to_dict
+from redcodegen.optimize.common import (
+    template, template_to_dict, _resolve_code,
+    is_amplify_format, extract_amplify_contrastive_pairs,
+)
 
 
 def _make_datum(prompt, code, tokenizer):
@@ -34,20 +37,30 @@ def _make_datum(prompt, code, tokenizer):
 def _generate_tk_contrastive_dataset(path, tokenizer):
     """Build paired (chosen, rejected) Datum lists from a JSONL data file.
 
-    Expects records with ``prompt`` and ``pairs`` (list of dicts with
-    ``success`` and ``failure`` keys), the same format used by
-    ``contrastive_thx.py``.
+    Supports amplify output (mcmc_failures with rollouts) and
+    rollout output (pairs of success/failure code).
     """
     config_path = Path(path).resolve(strict=True)
     with jsonlines.open(config_path) as d:
         raw = [i for i in d]
 
+    if is_amplify_format(raw):
+        pairs = extract_amplify_contrastive_pairs(raw)
+    else:
+        pairs = []
+        for record in raw:
+            for pair in record["pairs"]:
+                pairs.append({
+                    "prompt": record["prompt"],
+                    "success": _resolve_code(pair["success"]),
+                    "failure": _resolve_code(pair["failure"]),
+                })
+
     dataset = []
-    for record in raw:
-        for pair in record["pairs"]:
-            chosen, c_tokens = _make_datum(record["prompt"], pair["success"], tokenizer)
-            rejected, r_tokens = _make_datum(record["prompt"], pair["failure"], tokenizer)
-            dataset.append((chosen, rejected, c_tokens, r_tokens))
+    for pair in pairs:
+        chosen, c_tokens = _make_datum(pair["prompt"], pair["success"], tokenizer)
+        rejected, r_tokens = _make_datum(pair["prompt"], pair["failure"], tokenizer)
+        dataset.append((chosen, rejected, c_tokens, r_tokens))
     return dataset
 
 

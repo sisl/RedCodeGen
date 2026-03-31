@@ -10,17 +10,18 @@ from theseus.data.datasets import ChatTemplateDataset
 from theseus.training.backbone import BackbonedTrainer
 from theseus.quick import quick
 
-from redcodegen.optimize.common import template, convert_to_hf
+from redcodegen.optimize.common import (
+    template, convert_to_hf, _resolve_code,
+    is_amplify_format, extract_amplify_sft_samples,
+)
 
 
 @dataset("rcg_sft")
 class RCGSFTHardeningDataset(ChatTemplateDataset):
     """Dataset of safe code samples for supervised fine-tuning.
 
-    Expects a JSONL file from the generate pipeline (scenarios format) or
-    the contrastive rollout pipeline (pairs format). For the scenarios format,
-    keeps only rollouts with no vulnerabilities from scenarios that had at
-    least one vulnerable rollout.
+    Supports amplify output (clean rollouts from mcmc_failures/successes),
+    generate output (scenarios format), and rollout output (pairs format).
     """
 
     def __init__(self, split: str = "noop", config: str = "") -> None:
@@ -30,20 +31,23 @@ class RCGSFTHardeningDataset(ChatTemplateDataset):
 
         self.prompts: list[tuple[str, str]] = []
 
-        try:
-            # scenarios format: skip config record (first line)
-            raw = self.raw[1:]
-            scenarios = sum([i["scenarios"] for i in raw], [])
-            for s in scenarios:
-                if max(len(r["vulnerabilities"]) for r in s["rollouts"]) > 0:
-                    for r in s["rollouts"]:
-                        if len(r["vulnerabilities"]) == 0:
-                            self.prompts.append((s["scenario"], r["code"]))
-        except (KeyError, IndexError):
-            # pairs format: use successful samples
-            for i in self.raw:
-                for p in i["pairs"]:
-                    self.prompts.append((i["prompt"], p["success"]))
+        if is_amplify_format(self.raw):
+            self.prompts = extract_amplify_sft_samples(self.raw)
+        else:
+            try:
+                # scenarios format: skip config record (first line)
+                raw = self.raw[1:]
+                scenarios = sum([i["scenarios"] for i in raw], [])
+                for s in scenarios:
+                    if max(len(r["vulnerabilities"]) for r in s["rollouts"]) > 0:
+                        for r in s["rollouts"]:
+                            if len(r["vulnerabilities"]) == 0:
+                                self.prompts.append((s["scenario"], r["code"]))
+            except (KeyError, IndexError):
+                # pairs format: use successful samples
+                for i in self.raw:
+                    for p in i["pairs"]:
+                        self.prompts.append((i["prompt"], _resolve_code(p["success"])))
 
     def __len__(self) -> int:
         return len(self.prompts)

@@ -3,12 +3,14 @@ import hashlib
 import typer
 import jsonlines
 import dspy
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Set
 from loguru import logger
 
 from redcodegen.constants import create_lm
+from redcodegen.analyzers.common import AnalysisTool
 from redcodegen.cli.app import app
 from redcodegen.cli.common import is_data_record
 from redcodegen.cli.utils import configure_logging, get_model_config
@@ -42,21 +44,13 @@ def load_completed_rollouts(output_path: Path) -> Set[str]:
 
 def build_rollout_record(
     prompt: str,
-    pairs: list[tuple[str, str, Any]],
+    pairs: list[dict[str, Any]],
+    test_code: str | None,
     k: int,
     max_rollouts: int,
 ) -> dict[str, Any]:
     """Build a rollout record for JSONL output."""
     prompt_sha256 = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
-
-    pairs_out = [
-        {
-            "success": success,
-            "failure": failure,
-            "failure_info": failure_info,
-        }
-        for success, failure, failure_info in pairs
-    ]
 
     return {
         "prompt": prompt,
@@ -65,7 +59,8 @@ def build_rollout_record(
         "model_config": get_model_config(),
         "k": k,
         "max_rollouts": max_rollouts,
-        "pairs": pairs_out,
+        "tests": test_code,
+        "pairs": pairs,
     }
 
 
@@ -77,6 +72,7 @@ def append_rollout_record(record: dict[str, Any], output_path: Path):
 
 @app.command()
 def rollout(
+    ctx: typer.Context,
     input: Path = typer.Option(..., "--input", "-i", help="Input JSONL file from amplify command"),
     output: Path = typer.Option(..., "--output", "-o", help="Output JSONL file for rollout pairs"),
     k: int = typer.Option(5, "--k", help="Number of success/failure pairs to collect per prompt"),
@@ -86,22 +82,43 @@ def rollout(
     api_base: str | None = typer.Option(None, "--api-base", help="API base URL (defaults to OPENAI_API_BASE env var)"),
     temperature: float = typer.Option(0.8, "--temperature", help="Temperature for code generation"),
     coder_prompt: str | None = typer.Option(None, "--coder-prompt", "-c", help="Path to a JSON file with a hardened coder prompt to load"),
+    test_model: str = typer.Option("openai/gpt-5.3-codex", "--test-model", help="Model for test generation (trusted)"),
+    test_api_key: str | None = typer.Option(None, "--test-api-key", help="API key for the test model (defaults to --api-key)"),
+    test_api_base: str | None = typer.Option(None, "--test-api-base", help="Base URL for the test model API (defaults to --api-base)"),
+    analysis_tool: AnalysisTool = typer.Option(AnalysisTool.SEMGREP.value, "--analysis-tool", "-a", help="Static analysis tool for evaluation"),
     verbose: bool = typer.Option(False, "--verbose", help="Enable verbose output"),
 ):
     """Roll out amplified failure prompts to produce paired success/failure generations."""
     configure_logging(verbose)
 
+    ctx.ensure_object(dict)
+    language = ctx.obj.get("language", "python")
+
+    resolved_api_key = api_key or os.getenv("OPENAI_API_KEY")
+    resolved_api_base = api_base or os.getenv("OPENAI_API_BASE")
+
     # Configure DSPy with specified model
     lm = create_lm(
         model_name=model,
         temperature=temperature,
-        api_key=api_key or os.getenv("OPENAI_API_KEY"),
-        api_base=api_base or os.getenv("OPENAI_API_BASE"),
+        api_key=resolved_api_key,
+        api_base=resolved_api_base,
     )
     dspy.configure(lm=lm)
     logger.info(f"Configured code generation model: {model}")
 
+    # Set up test model for test generation
+    test_lm = create_lm(
+        model_name=test_model,
+        temperature=temperature,
+        api_key=test_api_key or os.getenv("TEST_LLM_API_KEY") or resolved_api_key,
+        api_base=test_api_base or os.getenv("TEST_LLM_API_BASE") or resolved_api_base,
+    )
+    logger.info(f"Test model: {test_model}")
+
     from redcodegen.contrastive import rollout_k_pairs
+    from redcodegen.test_gen import generate_test_with_model, run_tests
+    from redcodegen.analyzers.evaluate import evaluate
 
     # Load hardened coder prompt if provided
     if coder_prompt:
@@ -164,10 +181,63 @@ def rollout(
 
         logger.info(f"[{idx}/{len(unique_prompts)}] Rolling out prompt...")
         try:
-            pairs = rollout_k_pairs(prompt, k=k, max_rollouts=max_rollouts)
+            pairs_raw = rollout_k_pairs(prompt, k=k, max_rollouts=max_rollouts, language=language)
+
+            # Generate test from prompt using test model
+            test_code = None
+            try:
+                test_code = generate_test_with_model(prompt, test_lm, language=language)
+                logger.debug("  Test generated successfully")
+            except Exception as e:
+                logger.warning(f"  Test generation failed: {e}")
+
+            # Evaluate each code in the pairs: run tests + static analysis
+            def _evaluate_code(code):
+                passes_tests = None
+                test_details = None
+                if test_code is not None:
+                    test_result = run_tests(code, test_code, language=language)
+                    passes_tests = test_result["passed"]
+                    test_details = {
+                        "num_tests": test_result["num_tests"],
+                        "num_passed": test_result["num_passed"],
+                        "num_failed": test_result["num_failed"],
+                        "results": test_result["test_results"],
+                    }
+
+                vulnerabilities = []
+                try:
+                    vulnerabilities = evaluate(code, analysis_tool=analysis_tool, language=language)
+                except Exception as e:
+                    logger.warning(f"    Evaluation failed: {e}")
+
+                return {
+                    "code": code,
+                    "passes_tests": passes_tests,
+                    "test_details": test_details,
+                    "vulnerabilities": vulnerabilities,
+                }
+
+            # Evaluate all success/failure codes in parallel
+            all_codes = []
+            for success_code, failure_code, _ in pairs_raw:
+                all_codes.extend([success_code, failure_code])
+
+            with ThreadPoolExecutor(max_workers=min(len(all_codes), 8)) as executor:
+                all_evals = list(executor.map(_evaluate_code, all_codes))
+
+            # Reconstruct pairs from flat evaluation results
+            pairs = []
+            for i in range(0, len(all_evals), 2):
+                pairs.append({
+                    "success": all_evals[i],
+                    "failure": all_evals[i + 1],
+                })
+
             record = build_rollout_record(
                 prompt=prompt,
                 pairs=pairs,
+                test_code=test_code,
                 k=k,
                 max_rollouts=max_rollouts,
             )

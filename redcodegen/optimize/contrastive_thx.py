@@ -10,15 +10,18 @@ from theseus.data.datasets import ContrastiveChatTemplateDataset
 from theseus.training.contrastive import BackbonedContrastiveTrainer
 from theseus.quick import quick
 
-from redcodegen.optimize.common import template, convert_to_hf
+from redcodegen.optimize.common import (
+    template, convert_to_hf, _resolve_code,
+    is_amplify_format, extract_amplify_contrastive_pairs,
+)
 
 
 @dataset("rcg_contrastive")
 class RCGContrastiveHardeningDataset(ContrastiveChatTemplateDataset):
     """Contrastive dataset pairing safe and vulnerable code samples.
 
-    Expects a JSONL file from the contrastive rollout pipeline, with each
-    record containing a prompt and pairs of (success, failure) code samples.
+    Supports amplify output (mcmc_failures with rollouts) and
+    rollout output (pairs of success/failure code).
     """
 
     def __init__(self, split: str = "noop", config: str = "") -> None:
@@ -26,11 +29,17 @@ class RCGContrastiveHardeningDataset(ContrastiveChatTemplateDataset):
         with jsonlines.open(config_path) as d:
             self.raw = [i for i in d]
 
-        all_pairs: list[dict] = []
-        for record in self.raw:
-            for pair in record["pairs"]:
-                pair["prompt"] = record["prompt"]
-                all_pairs.append(pair)
+        if is_amplify_format(self.raw):
+            all_pairs = extract_amplify_contrastive_pairs(self.raw)
+        else:
+            all_pairs: list[dict] = []
+            for record in self.raw:
+                for pair in record["pairs"]:
+                    all_pairs.append({
+                        "prompt": record["prompt"],
+                        "success": _resolve_code(pair["success"]),
+                        "failure": _resolve_code(pair["failure"]),
+                    })
 
         self.dataset = all_pairs
 

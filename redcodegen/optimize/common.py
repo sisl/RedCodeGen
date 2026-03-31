@@ -18,6 +18,59 @@ SYSTEM_PROMPT = (
 )
 
 
+def _resolve_code(value) -> str:
+    """Extract code string from either a raw string or a rollout dict."""
+    if isinstance(value, dict):
+        return value["code"]
+    return value
+
+
+def is_amplify_format(raw: list[dict]) -> bool:
+    """Check if records are in amplify output format."""
+    return any("mcmc_failures" in r or "mcmc_successes" in r for r in raw)
+
+
+def extract_amplify_contrastive_pairs(raw: list[dict]) -> list[dict]:
+    """Extract contrastive (success, failure) pairs from amplify output.
+
+    From mcmc_failures chain entries: for each prompt's rollouts, pairs
+    rollouts with no vulnerabilities (success) against rollouts with
+    vulnerabilities (failure).
+    """
+    pairs = []
+    for record in raw:
+        for chain_entry in record.get("mcmc_failures", []):
+            prompt = chain_entry["prompt"]
+            rollouts = chain_entry.get("rollouts", [])
+            good = [r["code"] for r in rollouts if len(r.get("vulnerabilities", [])) == 0]
+            bad = [r["code"] for r in rollouts if len(r.get("vulnerabilities", [])) > 0]
+            for g, b in zip(good, bad):
+                pairs.append({"prompt": prompt, "success": g, "failure": b})
+    return pairs
+
+
+def extract_amplify_sft_samples(raw: list[dict]) -> list[tuple[str, str]]:
+    """Extract clean code samples from amplify output for SFT.
+
+    Takes:
+    - From mcmc_failures: rollouts with NO vulnerabilities
+    - From mcmc_successes: rollouts with NO vulnerabilities
+    """
+    samples = []
+    for record in raw:
+        for chain_entry in record.get("mcmc_failures", []):
+            prompt = chain_entry["prompt"]
+            for r in chain_entry.get("rollouts", []):
+                if len(r.get("vulnerabilities", [])) == 0:
+                    samples.append((prompt, r["code"]))
+        for chain_entry in record.get("mcmc_successes", []):
+            prompt = chain_entry["prompt"]
+            for r in chain_entry.get("rollouts", []):
+                if len(r.get("vulnerabilities", [])) == 0:
+                    samples.append((prompt, r["code"]))
+    return samples
+
+
 def template(prompt: str, label: str) -> list[ChatTurn]:
     """Build a chat template from a prompt and label."""
     return [

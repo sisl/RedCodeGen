@@ -58,24 +58,45 @@ class AnalyzerFusedFeedback(GEPAFeedbackMetric):
 
 
 def _build_examples(scenarios: list[dict]) -> list[dspy.Example]:
-    """Convert scenario dicts (with rollouts) into DSPy Examples for optimization.
+    """Convert scenario/amplify dicts into DSPy Examples for optimization.
 
     Filters to rollouts that contain vulnerabilities.
+    Supports both generate format (scenarios[].rollouts[]) and
+    amplify format (mcmc_failures[].rollouts[]).
     """
     examples = []
-    for s in scenarios:
-        scenario = s["scenario"]
-        test = s.get("tests", "")
-        for r in s.get("rollouts", []):
-            if len(r.get("vulnerabilities", [])) > 0:
-                examples.append(
-                    dspy.Example(
-                        task=scenario,
-                        language=DEFAULT_LANGUAGE,
-                        test_code=test or "",
-                        code=r["code"],
-                    ).with_inputs("task", "language", "test_code")
-                )
+
+    if any("mcmc_failures" in s for s in scenarios):
+        # Amplify format
+        for record in scenarios:
+            test = record.get("tests", "")
+            for chain_entry in record.get("mcmc_failures", []):
+                prompt = chain_entry["prompt"]
+                for r in chain_entry.get("rollouts", []):
+                    if len(r.get("vulnerabilities", [])) > 0:
+                        examples.append(
+                            dspy.Example(
+                                task=prompt,
+                                language=DEFAULT_LANGUAGE,
+                                test_code=test or "",
+                                code=r["code"],
+                            ).with_inputs("task", "language", "test_code")
+                        )
+    else:
+        # Generate format
+        for s in scenarios:
+            scenario = s["scenario"]
+            test = s.get("tests", "")
+            for r in s.get("rollouts", []):
+                if len(r.get("vulnerabilities", [])) > 0:
+                    examples.append(
+                        dspy.Example(
+                            task=scenario,
+                            language=DEFAULT_LANGUAGE,
+                            test_code=test or "",
+                            code=r["code"],
+                        ).with_inputs("task", "language", "test_code")
+                    )
     return examples
 
 

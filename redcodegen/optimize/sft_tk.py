@@ -12,7 +12,10 @@ from loguru import logger
 import tinker
 from tinker import types
 
-from redcodegen.optimize.common import template, template_to_dict
+from redcodegen.optimize.common import (
+    template, template_to_dict, _resolve_code,
+    is_amplify_format, extract_amplify_sft_samples,
+)
 
 import numpy as np
 
@@ -20,10 +23,8 @@ import numpy as np
 def _generate_tk_dataset(path, tokenizer):
     """Build a list of Tinker Datum objects from a JSONL data file.
 
-    Supports two formats: scenarios (from the generate pipeline) and
-    pairs (from contrastive rollouts). Applies the standard chat template
-    and constructs per-token loss weights that mask out prompt tokens so
-    only the response contributes to the cross-entropy loss.
+    Supports amplify output (clean rollouts from mcmc_failures/successes),
+    generate output (scenarios format), and rollout output (pairs format).
     """
     config_path = Path(path).resolve(strict=True)
     with jsonlines.open(config_path) as d:
@@ -31,20 +32,23 @@ def _generate_tk_dataset(path, tokenizer):
 
     prompts: list[tuple[str, str]] = []
 
-    try:
-        # scenarios format: skip config record (first line)
-        raw = raw[1:]
-        scenarios = sum([i["scenarios"] for i in raw], [])
-        for s in scenarios:
-            if max(len(r["vulnerabilities"]) for r in s["rollouts"]) > 0:
-                for r in s["rollouts"]:
-                    if len(r["vulnerabilities"]) == 0:
-                        prompts.append((s["scenario"], r["code"]))
-    except (KeyError, IndexError):
-        # pairs format: use successful samples
-        for i in raw:
-            for p in i["pairs"]:
-                prompts.append((i["prompt"], p["success"]))
+    if is_amplify_format(raw):
+        prompts = extract_amplify_sft_samples(raw)
+    else:
+        try:
+            # scenarios format: skip config record (first line)
+            raw = raw[1:]
+            scenarios = sum([i["scenarios"] for i in raw], [])
+            for s in scenarios:
+                if max(len(r["vulnerabilities"]) for r in s["rollouts"]) > 0:
+                    for r in s["rollouts"]:
+                        if len(r["vulnerabilities"]) == 0:
+                            prompts.append((s["scenario"], r["code"]))
+        except (KeyError, IndexError):
+            # pairs format: use successful samples
+            for i in raw:
+                for p in i["pairs"]:
+                    prompts.append((i["prompt"], _resolve_code(p["success"])))
 
     # apply standard finetuning template and convert to dicts
     prompts = [template_to_dict(template(*i)) for i in prompts]
