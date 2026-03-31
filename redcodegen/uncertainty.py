@@ -17,26 +17,28 @@ class FailureBeta:
 
 def quantify(
         prompt, threshold=0.015, min_rollouts=5, no_fail_prior=1,
-        fail_prior=1, return_evaluations=False, language=DEFAULT_LANGUAGE,
-) -> FailureBeta:
-    """Given prompt, we perform k rollouts or until variance threshold dips below threshold to obtain a beta distribution over failures.
+        fail_prior=1, language=DEFAULT_LANGUAGE,
+) -> Tuple[FailureBeta, list[dict]]:
+    """Given prompt, perform k rollouts until variance threshold is met.
 
-    Args:
-        prompt: The prompt to evaluate
-        threshold: Variance threshold for stopping
-        min_rollouts: Minimum number of rollouts
-        no_fail_prior: Prior for non-failures
-        fail_prior: Prior for failures
-        return_evaluations: Return the raw evaluation results
+    Returns:
+        Tuple of (FailureBeta, rollouts) where each rollout is
+        {"code": str, "vulnerabilities": list[dict]}.
     """
 
     k = min_rollouts
     var = float("+inf")
 
     evaluations_cache = {}
+    logger.debug("quantify: starting with threshold={}, min_rollouts={}, prompt={!r}",
+                 threshold, min_rollouts, prompt[:80])
 
+    iteration = 0
     while var > threshold:
+        iteration += 1
         results = run_k(prompt, k, language=language) # the first few will be cached, making this work
+        logger.debug("quantify: iteration {} — requested k={}, got {} results ({} cached)",
+                     iteration, k, len(results), sum(1 for r in results if r in evaluations_cache))
 
         # see which evaluations have been completed, and which ones have not
         evaluations = []
@@ -53,6 +55,9 @@ def quantify(
             evaluation = evaluate(code, language=language)
             evaluations_cache[code] = evaluation
             evaluations.append(evaluation)
+            if evaluation:
+                rules = [v.get("rule", "?") for v in evaluation]
+                logger.debug("quantify: rollout has {} vulnerabilities: {}", len(evaluation), rules)
 
         fail = fail_prior
         no_fail = no_fail_prior
@@ -64,41 +69,32 @@ def quantify(
                 no_fail += 1
 
         var = (fail*no_fail)/((fail+no_fail)**2 * (fail+no_fail+1))
+        logger.debug("quantify: iteration {} — fail={}, no_fail={}, var={:.6f} (threshold={})",
+                     iteration, fail - fail_prior, no_fail - no_fail_prior, var, threshold)
         k += 1
-        # print(var)
 
-    if return_evaluations:
-        results = set([i["rule"] for i in sum(list(evaluations_cache.values()), [])])
-
-        return (
-            FailureBeta(
-                failure_pseudocounts=fail,
-                nominal_pseudocounts=no_fail
-            ), results
-        )
-
-    return FailureBeta(
-        failure_pseudocounts=fail,
-        nominal_pseudocounts=no_fail
-    )
+    beta = FailureBeta(failure_pseudocounts=fail, nominal_pseudocounts=no_fail)
+    rollouts = [{"code": code, "vulnerabilities": vulns}
+                for code, vulns in evaluations_cache.items()]
+    logger.debug("quantify: converged after {} iterations — beta={}, {} rollouts",
+                 iteration, beta, len(rollouts))
+    return beta, rollouts
 
 
-def mcmc(tau: str, kernel: Kernel, turns=100, find_failure=True, symmetric=False, threshold=0.015, language=DEFAULT_LANGUAGE) -> list[Tuple[str, FailureBeta]]:
-    """Run MCMC step; provide tau and a kernel, and we'll give tau'.
-
-    We will keep sampling prompts until one acceptance happens,
-    and return, the newly accepted sample.
+def mcmc(tau: str, kernel: Kernel, turns=100, find_failure=True, symmetric=False, threshold=0.015, language=DEFAULT_LANGUAGE) -> list[Tuple[str, FailureBeta, list[dict]]]:
+    """Run MCMC chain starting from tau.
 
     Args:
-        tau (str): The initial prompt/trajectory.
-        kernel (Kernel): The MCMC kernel to use for sampling.
-        find_failure (bool): Find failures or find successes?
-        turns (int): Number of MCMC turns to run, accept or not.
-        symmetric (bool): Whether or not we consider proposal kernel as symmetric.
-        threshold (optional, float): The variance of the beta distribution given must be below thi to stop sampling.
+        tau: The initial prompt/trajectory.
+        kernel: The MCMC kernel to use for sampling.
+        find_failure: Find failures or find successes?
+        turns: Number of MCMC turns to run, accept or not.
+        symmetric: Whether or not we consider proposal kernel as symmetric.
+        threshold: The variance of the beta distribution must be below this to stop sampling.
 
     Returns:
-        str: The newly accepted prompt/trajectory.
+        List of (prompt, FailureBeta, rollouts) for accepted samples, where
+        each rollout is {"code": str, "vulnerabilities": list[dict]}.
     """
 
     # helper to score beta expected value
@@ -109,37 +105,52 @@ def mcmc(tau: str, kernel: Kernel, turns=100, find_failure=True, symmetric=False
         fail_estimate_fn = lambda fd: ((fd.nominal_pseudocounts -1)/
                                     (fd.failure_pseudocounts + fd.nominal_pseudocounts -2))
 
-    # compute distirbution of initial sample
-    fail_dist = quantify(tau, threshold, language=language)
-    samples = [(tau, fail_dist)]
+    # compute distribution of initial sample
+    logger.debug("mcmc: mode={}, turns={}, threshold={}, symmetric={}",
+                 "failure" if find_failure else "success", turns, threshold, symmetric)
+    logger.debug("mcmc: seed prompt={!r}", tau[:100])
+    fail_dist, rollouts = quantify(tau, threshold, language=language)
+    logger.debug("mcmc: seed quantified — beta={}, score={:.4f}, {} rollouts",
+                 fail_dist, fail_estimate_fn(fail_dist), len(rollouts))
+    samples = [(tau, fail_dist, rollouts)]
 
+    accepted = 0
     for i in range(turns):
-        logger.debug("MCMC turn {}/{}", i+1, turns)
-
         # get next sample
-        (tau, fail_dist) = samples[-1]
+        (tau, fail_dist, _) = samples[-1]
         tau_prime = kernel.sample(tau, state=(i+1)*(1 if find_failure else -1))
-        fail_dist_prime = quantify(tau_prime, threshold, language=language)
+        logger.debug("mcmc: turn {}/{} — proposal={!r}", i+1, turns, tau_prime[:100])
+        fail_dist_prime, rollouts_prime = quantify(tau_prime, threshold, language=language)
+
+        current_score = fail_estimate_fn(fail_dist)
+        proposal_score = fail_estimate_fn(fail_dist_prime)
 
         bonus = 0.0
         if not symmetric:
             bonus += kernel.condition(tau_prime, tau)-kernel.condition(tau, tau_prime)
 
         try:
-            if (fail_estimate_fn(fail_dist_prime) > 0 and fail_estimate_fn(fail_dist) == 0):
-                logger.debug("FORCE ACCEPT {}", fail_dist_prime) # since this is negative infinity
-                samples.append((tau_prime, fail_dist_prime))
-            elif (fail_estimate_fn(fail_dist_prime) > 0 and # otherwise taking the log becomes -infty
-                random.random() < math.exp((math.log(fail_estimate_fn(fail_dist_prime))-
-                                            math.log(fail_estimate_fn(fail_dist))+
+            if (proposal_score > 0 and current_score == 0):
+                accepted += 1
+                logger.debug("mcmc: turn {}/{} — FORCE ACCEPT (score {:.4f} > 0, current=0) beta={} [{} accepted]",
+                             i+1, turns, proposal_score, fail_dist_prime, accepted)
+                samples.append((tau_prime, fail_dist_prime, rollouts_prime))
+            elif (proposal_score > 0 and
+                random.random() < math.exp((math.log(proposal_score)-
+                                            math.log(current_score)+
                                             bonus))):
-                logger.debug("ACCEPT {}", fail_dist_prime)
-                samples.append((tau_prime, fail_dist_prime))
+                accepted += 1
+                logger.debug("mcmc: turn {}/{} — ACCEPT (score {:.4f} vs {:.4f}) beta={} [{} accepted]",
+                             i+1, turns, proposal_score, current_score, fail_dist_prime, accepted)
+                samples.append((tau_prime, fail_dist_prime, rollouts_prime))
             else:
-                logger.debug("REJECT {}", fail_dist_prime)
+                logger.debug("mcmc: turn {}/{} — REJECT (score {:.4f} vs {:.4f}) beta={}",
+                             i+1, turns, proposal_score, current_score, fail_dist_prime)
         except:
             import ipdb
             ipdb.set_trace()
 
+    logger.debug("mcmc: finished — {}/{} accepted, {} total samples (including seed)",
+                 accepted, turns, len(samples))
     return samples
 

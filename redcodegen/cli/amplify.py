@@ -4,7 +4,6 @@ import typer
 import jsonlines
 import dspy
 from collections import defaultdict
-from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from multiprocessing import Pool, Manager
 from pathlib import Path
@@ -42,6 +41,19 @@ def load_processed_scenarios(output_path: Path) -> Set[tuple[str, str]]:
     return processed
 
 
+def _serialize_chain(chain: list[tuple[str, Any, list[dict]]]) -> list[dict]:
+    """Serialize an MCMC chain for JSONL output."""
+    return [
+        {
+            "prompt": prompt,
+            "num_successes": beta.nominal_pseudocounts - 1,
+            "num_failures": beta.failure_pseudocounts - 1,
+            "rollouts": rollouts,
+        }
+        for prompt, beta, rollouts in chain
+    ]
+
+
 def build_amplify_record(
     rule: str,
     seed: str,
@@ -51,34 +63,14 @@ def build_amplify_record(
     metadata: dict[str, Any],
 ) -> dict[str, Any]:
     """Build an amplify record for JSONL output."""
-    successes_out = [
-        {
-            "prompt": prompt,
-            "num_successes": beta.nominal_pseudocounts - 1,
-            "num_failures": beta.failure_pseudocounts - 1,
-            "rollouts": rollouts,
-        }
-        for prompt, beta, rollouts in successes
-    ]
-
-    failures_out = [
-        {
-            "prompt": prompt,
-            "num_successes": beta.nominal_pseudocounts - 1,
-            "num_failures": beta.failure_pseudocounts - 1,
-            "rollouts": rollouts,
-        }
-        for prompt, beta, rollouts in failures
-    ]
-
     return {
         "type": rule,
         "seed": seed,
         "timestamp": datetime.utcnow().isoformat() + 'Z',
         "model_config": get_model_config(),
         "tests": test_code,
-        "mcmc_successes": successes_out,
-        "mcmc_failures": failures_out,
+        "mcmc_successes": _serialize_chain(successes),
+        "mcmc_failures": _serialize_chain(failures),
         "metadata": metadata,
     }
 
@@ -105,7 +97,6 @@ def process_scenario_worker(
     test_api_key: str | None = None,
     test_api_base: str | None = None,
     analysis_tool: str = "semgrep",
-    num_rollouts: int = 1,
     no_successes: bool = False,
 ):
     """Worker function that pulls tasks from queue and processes them."""
@@ -113,10 +104,7 @@ def process_scenario_worker(
     from redcodegen.kernels import LMRephrasingKernel
     from redcodegen.uncertainty import mcmc
     from redcodegen.constants import create_lm
-    from redcodegen.generator.prompting import run_k
     from redcodegen.test_gen import generate_test_with_model, run_tests
-    from redcodegen.analyzers.evaluate import evaluate
-    from redcodegen.analyzers.common import AnalysisTool as AT
 
     # Set up logging for this worker process
     from loguru import logger as worker_logger
@@ -137,8 +125,6 @@ def process_scenario_worker(
         api_key=test_api_key or api_key,
         api_base=test_api_base or api_base,
     )
-
-    analysis = AT(analysis_tool)
 
     worker_logger.debug("Worker started, waiting for tasks...")
 
@@ -192,45 +178,28 @@ def process_scenario_worker(
             except Exception as e:
                 worker_logger.warning(f"  Test generation failed: {e}")
 
-            # Evaluate a single code rollout: run tests + static analysis
-            def _process_rollout(code):
-                passes_tests = None
-                test_details = None
-                if test_code is not None:
-                    test_result = run_tests(code, test_code, language=language)
-                    passes_tests = test_result["passed"]
-                    test_details = {
-                        "num_tests": test_result["num_tests"],
-                        "num_passed": test_result["num_passed"],
-                        "num_failed": test_result["num_failed"],
-                        "results": test_result["test_results"],
-                    }
-
-                vulnerabilities = []
-                try:
-                    vulnerabilities = evaluate(code, analysis_tool=analysis, language=language)
-                except Exception as e:
-                    worker_logger.warning(f"    Evaluation failed: {e}")
-
-                return {
-                    "code": code,
-                    "passes_tests": passes_tests,
-                    "test_details": test_details,
-                    "vulnerabilities": vulnerabilities,
-                }
-
-            # Generate code rollouts and evaluate each chain prompt
-            def _process_chain(chain):
+            # Run tests on MCMC rollouts (MCMC already did code gen + static analysis)
+            def _add_test_results(chain):
                 results = []
-                for prompt, beta in chain:
-                    codes = run_k(prompt, num_rollouts, test_code=test_code or "", language=language)
-                    with ThreadPoolExecutor(max_workers=num_rollouts) as executor:
-                        rollouts = list(executor.map(_process_rollout, codes))
+                for prompt, beta, rollouts in chain:
+                    if test_code is not None:
+                        for rollout in rollouts:
+                            try:
+                                test_result = run_tests(rollout["code"], test_code, language=language)
+                                rollout["passes_tests"] = test_result["passed"]
+                                rollout["test_details"] = {
+                                    "num_tests": test_result["num_tests"],
+                                    "num_passed": test_result["num_passed"],
+                                    "num_failed": test_result["num_failed"],
+                                    "results": test_result["test_results"],
+                                }
+                            except Exception as e:
+                                worker_logger.warning(f"    Test run failed: {e}")
                     results.append((prompt, beta, rollouts))
                 return results
 
-            success_results = _process_chain(successes)
-            failure_results = _process_chain(failures_mcmc)
+            success_results = _add_test_results(successes)
+            failure_results = _add_test_results(failures_mcmc)
 
             # Build record
             record = build_amplify_record(
@@ -242,7 +211,6 @@ def process_scenario_worker(
                 metadata={
                     "turns": mcmc_steps,
                     "beta_variance_threshold": variance_threshold,
-                    "num_rollouts": num_rollouts,
                     "analysis_tool": analysis_tool,
                 },
             )
@@ -297,7 +265,6 @@ def run_amplification(config):
     analysis_tool = AnalysisTool(analysis_tool_str)
     mcmc_steps = config.mcmc_steps
     variance_threshold = config.variance_threshold
-    num_rollouts = config.num_rollouts
     no_successes = config.no_successes
     filter_rule = config.filter_rule
     ignore_rule = config.ignore_rule
@@ -426,7 +393,6 @@ def run_amplification(config):
                 test_api_key,
                 test_api_base,
                 analysis_tool.value,
-                num_rollouts,
                 no_successes,
             )
 
