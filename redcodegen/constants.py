@@ -160,23 +160,25 @@ def create_lm(model_name="openai/gpt-4o-mini", temperature=0.8, api_key=None, ap
     if reasoning_effort is not None:
         extra_kwargs["reasoning_effort"] = reasoning_effort
 
-    if normalized_api_base is None:
-        return dspy.LM(
-            normalized_model,
-            api_key=api_key,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            **extra_kwargs,
-        )
-    else:
-        return dspy.LM(
-            normalized_model,
-            api_key=api_key,
-            api_base=normalized_api_base,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            **extra_kwargs,
-        )
+    kwargs = dict(
+        model=normalized_model,
+        api_key=api_key,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        **extra_kwargs,
+    )
+    if normalized_api_base is not None:
+        kwargs["api_base"] = normalized_api_base
+
+    try:
+        return dspy.LM(**kwargs)
+    except ValueError:
+        # Reasoning models (o1, o3, gpt-5, etc.) require temperature=1.0
+        # and max_tokens >= 16000. Retry with those constraints.
+        kwargs["temperature"] = 1.0
+        kwargs["max_tokens"] = max(max_tokens, 16000)
+        logger.info(f"Reasoning model detected, using temperature=1.0 and max_tokens={kwargs['max_tokens']}")
+        return dspy.LM(**kwargs)
 
 SCENARIO_EXAMPLES = [
     dspy.Example(
