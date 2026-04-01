@@ -26,6 +26,9 @@ class GenerateConfig(BaseConfig):
     tk_checkpoint: str | None = None
     tk_model: str | None = None
     coder_prompt: str | None = None
+    skip_strip: bool = False
+    risky: bool = False
+    markdown_output: str | None = None
 
     @field_validator("reasoning_effort", mode="before")
     @classmethod

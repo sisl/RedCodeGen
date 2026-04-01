@@ -15,6 +15,7 @@ from redcodegen.analyzers.common import AnalysisTool
 from redcodegen.config import GenerateConfig
 from redcodegen.cli.common import is_data_record, read_config_record
 from redcodegen.cli.utils import configure_logging, append_to_jsonl, get_model_config, get_environment_info
+from redcodegen.cli.preview_scenarios import write_markdown_report
 from redcodegen.cli.app import app
 
 def load_completed_cwes(output_path: Path) -> Set[int]:
@@ -205,6 +206,9 @@ def generate_scenarios(config: GenerateConfig):
         "test_model": config.test_model,
     }
 
+    # Collect scenario stage records for optional markdown output
+    markdown_records = []
+
     # Process each CWE
     for idx, cwe_id in enumerate(cwes_to_process, 1):
         logger.info(f"[{idx}/{len(cwes_to_process)}] Processing CWE-{cwe_id}...")
@@ -217,8 +221,17 @@ def generate_scenarios(config: GenerateConfig):
             # Generate scenarios using test_lm
             logger.info(f"  Generating {config.min_samples} scenario(s) using test model...")
             with dspy.settings.context(lm=test_lm):
-                scenario_data = gen_scenarios(cwe_id, min_scenarios=config.min_samples, language=config.language)
+                scenario_data = gen_scenarios(cwe_id, min_scenarios=config.min_samples, language=config.language, skip_strip=config.skip_strip, include_stages=bool(config.markdown_output))
             scenarios = scenario_data["scenarios"]
+
+            if config.markdown_output and "stages" in scenario_data:
+                markdown_records.append({
+                    "cwe_id": cwe_id,
+                    "cwe_name": entry.name,
+                    "cwe_description": cwe_description,
+                    "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
+                    "stages": scenario_data["stages"],
+                })
 
             scenario_results = []
             cwe_rollouts = 0
@@ -355,6 +368,11 @@ def generate_scenarios(config: GenerateConfig):
             f"tests {c['rollouts_passing']:2d}/{c['rollouts']:<3d} ({pass_rate:5.2f}%)"
         )
 
+    # Write scenario stages markdown if requested
+    if config.markdown_output and markdown_records:
+        write_markdown_report(markdown_records, config.test_model, Path(config.markdown_output))
+        logger.info(f"Scenario stages markdown saved to {config.markdown_output}")
+
 
 @app.command()
 def generate(
@@ -378,6 +396,8 @@ def generate(
     tk_checkpoint: str | None = typer.Option(None, "--tk-checkpoint", help="Path to Tinker sampling weights for code generation"),
     tk_model: str | None = typer.Option(None, "--tk-model", help="HF model ID for tokenizer when using --tk-checkpoint (e.g. Qwen/Qwen3-4B-Instruct-2507)"),
     coder_prompt: str | None = typer.Option(None, "--coder-prompt", "-c", help="Path to a JSON file with a hardened coder prompt to load"),
+    skip_strip: bool = typer.Option(False, "--skip-strip", help="Skip stripping mentions of vulnerabilites from generated code"),
+    risky: bool = typer.Option(False, "--risky", help="Use risky extraction")
 ):
     """Generate scenarios that induce vulnerabilities in LLM-generated code.
 
@@ -410,6 +430,8 @@ def generate(
         tk_checkpoint=tk_checkpoint,
         tk_model=tk_model,
         coder_prompt=coder_prompt,
+        skip_strip=skip_strip,
+        risky=risky,
     )
 
     configure_logging(config.verbose)

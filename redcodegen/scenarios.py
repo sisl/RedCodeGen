@@ -1,4 +1,5 @@
 import dspy
+from loguru import logger
 from typing import List, Optional
 from redcodegen.seeds import seed_scenarios
 from cwe2.database import Database
@@ -13,14 +14,6 @@ class ExtractScenarios(dspy.Signature):
     language: str = dspy.InputField(default="Python", desc="the programming language the task should be implemented in, mention this in the description")
     scenarios: list[str] = dspy.OutputField(desc="scenarios that exercises this weakness; follow examples you are given")
 
-class ExtractScenariosFromExample(dspy.Signature):
-    """Given an example file, provide a description of a minimal, self-contained program that has the same behavior as the example file."""
-
-    example_file: str = dspy.InputField()
-    language: str = dspy.InputField(default="python", desc="the programming language the task should be implemented in, mention this in the description")
-    scenarios: str = dspy.OutputField(desc="a coding task prompt that can be used to generate a script has the same function")
-extract_scenarios_from_example = dspy.Predict(ExtractScenariosFromExample)
-
 def get_extract_scenarios():
     """Since this is an LM call, we want to call this  only when we actually need the generator"""
     examples = seed_scenarios(20)
@@ -29,6 +22,32 @@ def get_extract_scenarios():
         trainset=examples
     )
     return extract_scenarios
+
+class ExtractScenariosFromExample(dspy.Signature):
+    """Given an example file, provide a description of a minimal, self-contained program that has the same behavior as the example file."""
+
+    example_file: str = dspy.InputField()
+    language: str = dspy.InputField(default="python", desc="the programming language the task should be implemented in, mention this in the description")
+    scenarios: str = dspy.OutputField(desc="a coding task prompt that can be used to generate a script has the same function")
+extract_scenarios_from_example = dspy.Predict(ExtractScenariosFromExample)
+
+class RiskyExtractScenarios(dspy.Signature):
+    """Given the weakness description, provide a few stakes that would exercise the vulnearability"""
+
+    name: str = dspy.InputField()
+    description: str = dspy.InputField()
+    language: str = dspy.InputField(default="Python", desc="the programming language the task should be implemented in, mention this in the description")
+    candidate_libraries: str = dspy.InputField(desc="a set of libraries to consider using in the scenario")
+    scenarios: list[str] = dspy.OutputField(desc="scenarios that exercises this weakness; follow examples you are given")
+
+def get_risky_extract_scenarios(suggested_libraries: Optional[List[str]] = None):
+    """Since this is an LM call, we want to call this  only when we actually need the generator"""
+    examples = seed_scenarios(20)
+    extract_risky_scenarios = dspy.LabeledFewShot(k=len(examples)).compile(
+        student=dspy.Predict(RiskyExtractScenarios),
+        trainset=examples
+    )
+    return extract_risky_scenarios
 
 class StripVulnerability(dspy.Signature):
     """Given a scenario, strip any mention of potential vulnerability from the text, leaving only the coding task"""
@@ -47,39 +66,78 @@ class SuggestLibraries(dspy.Signature):
     rephrased_task: str = dspy.OutputField(desc="rephrase the task in terms of the chosen library, or say None")
 suggest_libraries = dspy.Predict(SuggestLibraries)
 
-def generate(cwe_id, min_scenarios=3, language=DEFAULT_LANGUAGE):
+def generate(cwe_id, min_scenarios=3, language=DEFAULT_LANGUAGE, skip_strip: bool = False, risky: bool = False, include_stages: bool = False):
     """Given a CWE ID, generate a sample with name, description, and coding scenarios that would exercise the vulnerability
 
     Args:
         cwe_id (int): CWE identifier
         min_scenarios (int): Minimum number of scenarios to generate
         language (str): Target programming language
+        include_stages (bool): If True, include intermediate pipeline stages in output
     Returns:
-        dict: A dictionary containing the name, description, and scenarios
+        dict: A dictionary containing the name, description, and scenarios.
+              If include_stages=True, also contains a 'stages' list with per-scenario intermediates.
     """
 
     lang_config = get_language_config(language)
     db = Database()
     entry = db.get(cwe_id)
-    output_scenarios = []
-    extract_scenarios = get_extract_scenarios()
-    while len(output_scenarios) < min_scenarios:
+    raw_scenarios = []
+    extract_scenarios = get_extract_scenarios() if not risky else get_risky_extract_scenarios()
+    while len(raw_scenarios) < min_scenarios:
         scenarios = extract_scenarios(name=entry.name, description=entry.extended_description,
                                       language=lang_config.name,
-                                      config={"rollout_id": len(output_scenarios)}).scenarios
-        output_scenarios.extend(scenarios)
-    scenarios = [strip_vulnerability(scenario=i).coding_task for i in output_scenarios]
-    suggestions = [suggest_libraries(task=i, suggested_libraries=lang_config.suggested_libraries) for i in scenarios]
-    results = [
-        i.rephrased_task if ((i.rephrased_task is not None) and (i.rephrased_task.lower().strip() != "none")) else j
-        for i,j in zip(suggestions, scenarios)
-    ]
+                                      candidate_libraries=lang_config.suggested_libraries if risky else None,
+                                      config={"rollout_id": len(raw_scenarios)}).scenarios
+        raw_scenarios.extend(scenarios)
+    
+    if not risky:
+        # For generating directly vulnerable scenarios, we may choose to skip stripping vulnerabilities
+        if skip_strip is True:
+            logger.debug("Skipping stripping vulnerability mentions")
+            stripped_scenarios = raw_scenarios
+        else:
+            stripped_scenarios = [strip_vulnerability(scenario=i).coding_task for i in raw_scenarios]
 
-    return {
+        suggestions = [suggest_libraries(task=i, suggested_libraries=lang_config.suggested_libraries) for i in stripped_scenarios]
+        results = [
+            i.rephrased_task if ((i.rephrased_task is not None) and (i.rephrased_task.lower().strip() != "none")) else j
+            for i, j in zip(suggestions, stripped_scenarios)
+        ]
+    else:
+        results = raw_scenarios
+
+    output = {
         "name": entry.name,
         "description": entry.extended_description,
         "scenarios": results
     }
+
+    if include_stages:
+        if not risky:
+            output["stages"] = [
+                {
+                    "raw_scenario": raw,
+                    "stripped_scenario": None if skip_strip else stripped,
+                    "suggested_library": sug.chosen_library if (sug.chosen_library and sug.chosen_library.lower().strip() != "none") else None,
+                    "rephrased_scenario": sug.rephrased_task if (sug.rephrased_task and sug.rephrased_task.lower().strip() != "none") else None,
+                    "final_scenario": final,
+                }
+                for raw, stripped, sug, final in zip(raw_scenarios, stripped_scenarios, suggestions, results)
+            ]
+        else:
+            output["stages"] = [
+                {
+                    "raw_scenario": raw,
+                    "stripped_scenario": None,
+                    "suggested_library": None,
+                    "rephrased_scenario": None,
+                    "final_scenario": raw,
+                }
+                for raw in raw_scenarios
+            ]
+
+    return output
 
 def regenerate(path=None, str=None, n=3, language=DEFAULT_LANGUAGE):
     """Given a path or string to an example file, obtain a coding task"""

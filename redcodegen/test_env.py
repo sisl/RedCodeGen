@@ -4,6 +4,7 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 from loguru import logger
@@ -82,6 +83,28 @@ def build_script_footer() -> str:
     )
 
 
+_uv_python_installed = False
+_uv_python_lock = threading.Lock()
+
+
+def ensure_uv_python():
+    """Install Python 3.12 via uv once (thread-safe). Call before parallel work."""
+    global _uv_python_installed
+    if _uv_python_installed:
+        return
+    with _uv_python_lock:
+        if _uv_python_installed:
+            return
+        subprocess.run(
+            ["uv", "python", "install", "3.12"],
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=True,
+        )
+        _uv_python_installed = True
+
+
 def create_uv_env(
     workdir: Path,
     packages: list[str],
@@ -93,8 +116,9 @@ def create_uv_env(
         return False
 
     try:
+        ensure_uv_python()
         subprocess.run(
-            ["uv", "init", "--no-readme", "--python", sys.executable],
+            ["uv", "init", "--no-readme", "--python", "3.12"],
             cwd=str(workdir),
             capture_output=True,
             text=True,
@@ -113,6 +137,13 @@ def create_uv_env(
         )
 
         return True
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as e:
+    except subprocess.CalledProcessError as e:
+        logger.warning(
+            f"Failed to create uv environment: {e}\n"
+            f"  stdout: {e.stdout}\n"
+            f"  stderr: {e.stderr}"
+        )
+        return False
+    except (subprocess.TimeoutExpired, OSError) as e:
         logger.warning(f"Failed to create uv environment: {e}")
         return False

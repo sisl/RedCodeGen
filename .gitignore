@@ -20,3 +20,5 @@ wheels/
 /output/
 tmp/
 models/
+/*.md
+!/README.md
