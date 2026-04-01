@@ -218,13 +218,24 @@ def generate(
         None, "--workers", "-w",
         help="Number of parallel workers (default: CPU count). Use 1 for serial execution.",
     ),
+    markdown: bool = typer.Option(False, "--markdown", "-m", help="Generate a Markdown report per run"),
+    output_dir: str = typer.Option("./output/sweeps/", "--output-dir", "-o", help="Output directory for results"),
 ):
     """Run a sweep of multiple generations across different CWEs."""
     configure_logging(verbose=False)
     n_workers = workers if workers is not None else os.cpu_count()
     logger.info(f"Starting generation sweep ({n_workers} worker(s))...")
 
-    tasks = _build_sweep_tasks(config_name, overrides, runs_config, GenerateConfig)
+    def _post_build(cfg, run_name):
+        updates = {}
+        if markdown:
+            md_path = _auto_output_path(output_dir, "generate", cfg.model, cfg.temperature).replace(".jsonl", ".md")
+            updates["markdown_output"] = md_path
+        if updates:
+            cfg = cfg.model_copy(update=updates)
+        return cfg
+
+    tasks = _build_sweep_tasks(config_name, overrides, runs_config, GenerateConfig, post_build=_post_build)
     _dispatch_sweep_tasks(tasks, n_workers, _run_generate_task, "Generation sweep")
 
 

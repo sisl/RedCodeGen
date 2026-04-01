@@ -83,7 +83,14 @@ def generate(cwe_id, min_scenarios=3, language=DEFAULT_LANGUAGE, skip_strip: boo
     db = Database()
     entry = db.get(cwe_id)
     raw_scenarios = []
-    extract_scenarios = get_extract_scenarios() if not risky else get_risky_extract_scenarios()
+    extract_scenarios = None
+    if not risky:
+        logger.debug("Using standard scenario generator")
+        extract_scenarios = get_extract_scenarios()
+    else:
+        logger.debug("Using risky scenario generator with candidate libraries: {}", lang_config.suggested_libraries)
+        extract_scenarios = get_risky_extract_scenarios()
+        
     while len(raw_scenarios) < min_scenarios:
         scenarios = extract_scenarios(name=entry.name, description=entry.extended_description,
                                       language=lang_config.name,
