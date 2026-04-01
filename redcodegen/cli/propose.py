@@ -56,7 +56,7 @@ def build_propose_record(
         "result": {
             "failure": quantify_result[0].failure_pseudocounts - 1,
             "nominal": quantify_result[0].nominal_pseudocounts - 1,
-            "error_types": list(quantify_result[1]),
+            "error_types": list({v["rule"] for r in quantify_result[1] for v in r["vulnerabilities"]}),
         },
     }
 
@@ -210,7 +210,6 @@ def propose(
                         nominal_prompt,
                         threshold=variance_threshold,
                         min_rollouts=min_rollouts,
-                        return_evaluations=True,
                         language=language,
                     )
 
@@ -247,7 +246,6 @@ def propose(
                         failure_prompt,
                         threshold=variance_threshold,
                         min_rollouts=min_rollouts,
-                        return_evaluations=True,
                         language=language,
                     )
 
