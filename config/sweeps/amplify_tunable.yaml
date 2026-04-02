@@ -45,7 +45,7 @@ runs:
   - name: qwen2.5-coder-7b-instruct
     overrides:
       - model=openai/Qwen/Qwen2.5-Coder-7B-Instruct
-      - api_base=http://bend.stanford.edu:8002/v1
+      - api_base=http://sphinx7.stanford.edu:8001/v1
       - api_key=token-abc123
       - input_file=./output/sweeps/generated_scenarios_Qwen2.5_Coder_7B_Instruct_t1p0_n10_k10.jsonl
 
@@ -56,9 +56,10 @@ runs:
       - api_key=token-abc123
       - input_file=./output/sweeps/generated_scenarios_Qwen2.5_Coder_14B_Instruct_t1p0_n10_k10.jsonl
 
-  - name: qwen3.5-35b-a3b
-    overrides:
-      - model=openai/Qwen/Qwen3.5-35B-A3B
-      - api_base=http://bend.stanford.edu:8001/v1
-      - api_key=token-abc123
-      - input_file=./output/sweeps/generated_scenarios_Qwen3.5_35B_A3B_t1p0_n10_k10.jsonl
+  # PENDING GPU AVAILABILITY
+  # - name: qwen3.5-35b-a3b
+  #   overrides:
+  #     - model=openai/Qwen/Qwen3.5-35B-A3B
+  #     - api_base=http://bend.stanford.edu:8001/v1
+  #     - api_key=token-abc123
+  #     - input_file=./output/sweeps/generated_scenarios_Qwen3.5_35B_A3B_t1p0_n10_k10.jsonl
