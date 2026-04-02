@@ -118,7 +118,7 @@ def create_uv_env(
     try:
         ensure_uv_python()
         subprocess.run(
-            ["uv", "init", "--no-readme", "--python", "3.12"],
+            ["uv", "init", "--no-readme", "--python", "3.12", "--name", "testpkg"],
             cwd=str(workdir),
             capture_output=True,
             text=True,
