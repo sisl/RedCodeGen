@@ -1,0 +1,50 @@
+# Remaining Model Optimize Sweep
+# --------------------------------
+# GEPA and MIPRO prompt optimization for models that weren't in the
+# initial optimize sweep.
+#
+# Usage:
+#   rcg sweep optimize -r config/sweeps/optimize_remainders.yaml
+
+defaults: []
+
+runs:
+  # --- GEPA ---
+
+  - name: gepa-codellama-7b-instruct
+    overrides:
+      - method=gepa
+      - model=openai/codellama/CodeLlama-7b-Instruct-hf
+      - api_base=http://grandtarghee.stanford.edu:8001/v1
+      - api_key=token-abc123
+      - input_file=./output/sweeps/amplify_CodeLlama_7b_Instruct_hf_t0p8.jsonl
+      - output=./output/sweeps/optimize_gepa_CodeLlama_7b_Instruct_hf_t1p0.json
+
+  - name: gepa-qwen3.5-35b-a3b
+    overrides:
+      - method=gepa
+      - model=openai/Qwen/Qwen3.5-35B-A3B
+      - api_base=http://bend.stanford.edu:8001/v1
+      - api_key=token-abc123
+      - input_file=./output/sweeps/amplify_Qwen3.5_35B_A3B_t0p8.jsonl
+      - output=./output/sweeps/optimize_gepa_Qwen3.5_35B_A3B_t1p0.json
+
+  # --- MIPRO ---
+
+  - name: mipro-codellama-7b-instruct
+    overrides:
+      - method=mipro
+      - model=openai/codellama/CodeLlama-7b-Instruct-hf
+      - api_base=http://grandtarghee.stanford.edu:8001/v1
+      - api_key=token-abc123
+      - input_file=./output/sweeps/amplify_CodeLlama_7b_Instruct_hf_t0p8.jsonl
+      - output=./output/sweeps/optimize_mipro_CodeLlama_7b_Instruct_hf_t1p0.json
+
+  - name: mipro-qwen3.5-35b-a3b
+    overrides:
+      - method=mipro
+      - model=openai/Qwen/Qwen3.5-35B-A3B
+      - api_base=http://bend.stanford.edu:8001/v1
+      - api_key=token-abc123
+      - input_file=./output/sweeps/amplify_Qwen3.5_35B_A3B_t0p8.jsonl
+      - output=./output/sweeps/optimize_mipro_Qwen3.5_35B_A3B_t1p0.json
