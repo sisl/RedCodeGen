@@ -1,0 +1,24 @@
+# Tunable Model Amplify Sweep
+# ----------------------------
+# MCMC amplification of each model's own generated scenarios.
+# Each run pairs a model with its corresponding generate output.
+#
+# Usage:
+#   rcg sweep amplify -r config/sweeps/amplify_tunable.yaml
+
+defaults: []
+
+runs:
+  - name: codellama-7b-instruct
+    overrides:
+      - model=openai/codellama/CodeLlama-7b-Instruct-hf
+      - api_base=http://grandtarghee.stanford.edu:8001/v1
+      - api_key=token-abc123
+      - input_file=./output/sweeps/generated_scenarios_CodeLlama_7b_Instruct_hf_t1p0_n10_k10.jsonl
+  - name: qwen3.5-35b-a3b
+    overrides:
+      - model=openai/Qwen/Qwen3.5-35B-A3B
+      - api_base=http://bend.stanford.edu:8001/v1
+      - api_key=token-abc123
+      - input_file=./output/sweeps/generated_scenarios_Qwen3.5_35B_A3B_t1p0_n10_k10.jsonl
+

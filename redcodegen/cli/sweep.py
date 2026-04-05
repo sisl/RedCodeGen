@@ -8,12 +8,13 @@ from omegaconf import OmegaConf
 from pathlib import Path
 from itertools import product
 
-from redcodegen.config import GenerateConfig, RegenerateConfig, AmplifyConfig
+from redcodegen.config import GenerateConfig, RegenerateConfig, AmplifyConfig, OptimizeConfig
 from redcodegen.cli.app import app
 from redcodegen.cli.utils import configure_logging
 from redcodegen.cli.generate import generate_scenarios
 from redcodegen.cli.regenerate import run_regeneration
 from redcodegen.cli.amplify import run_amplification
+from redcodegen.cli.optimize import run_optimization
 
 sweep_app = typer.Typer(
     name="sweep",
@@ -201,6 +202,14 @@ def _run_amplify_task(task):
     logger.info(f"[{run_name}] Completed.")
 
 
+def _run_optimize_task(task):
+    cfg, run_name = task
+    configure_logging(verbose=cfg.verbose)
+    logger.info(f"[{run_name}] Starting optimization ({cfg.method})...")
+    run_optimization(cfg)
+    logger.info(f"[{run_name}] Completed.")
+
+
 # ---------------------------------------------------------------------------
 # Sweep subcommands
 # ---------------------------------------------------------------------------
@@ -294,6 +303,42 @@ def sweep_amplify(
 
     tasks = _build_sweep_tasks(config_name, overrides, runs_config, AmplifyConfig, post_build=_post_build)
     _dispatch_sweep_tasks(tasks, n_workers, _run_amplify_task, "Amplification sweep")
+
+
+@sweep_app.command("optimize")
+def sweep_optimize(
+    config_name: str = "optimize",
+    overrides: list[str] = typer.Argument(default=None),
+    runs_config: Path | None = typer.Option(
+        None, "--runs-config", "-r",
+        exists=True, file_okay=True, dir_okay=False, resolve_path=True,
+        help="YAML file with runs.",
+    ),
+    workers: int | None = typer.Option(
+        None, "--workers", "-w",
+        help="Number of parallel workers (default: CPU count). Use 1 for serial execution.",
+    ),
+    input_file: str | None = typer.Option(None, "--input", "-i", help="Input JSONL file (overrides per-run input_file)"),
+    output_dir: str = typer.Option("./output/sweeps/", "--output-dir", "-o", help="Output directory for results"),
+):
+    """Run a sweep of optimizations across different models or methods."""
+    configure_logging(verbose=False)
+    n_workers = workers if workers is not None else os.cpu_count()
+    logger.info(f"Starting optimization sweep ({n_workers} worker(s))...")
+
+    def _post_build(cfg, run_name):
+        updates = {}
+        if input_file:
+            updates["input_file"] = input_file
+        if not cfg.output:
+            model_str = cfg.model.split('/')[-1].replace('-', '_')
+            temp_str = f"t{cfg.temperature}".replace('.', 'p')
+            updates["output"] = str(Path(output_dir) / f"optimize_{cfg.method}_{model_str}_{temp_str}.json")
+        cfg = cfg.model_copy(update=updates)
+        return cfg
+
+    tasks = _build_sweep_tasks(config_name, overrides, runs_config, OptimizeConfig, post_build=_post_build)
+    _dispatch_sweep_tasks(tasks, n_workers, _run_optimize_task, "Optimization sweep")
 
 
 @sweep_app.callback(invoke_without_command=True)

@@ -7,6 +7,7 @@ from typing import Any
 
 import dspy
 from redcodegen.constants import create_lm
+from redcodegen.config import OptimizeConfig
 from redcodegen.cli.app import app
 from redcodegen.cli.common import is_data_record
 from redcodegen.cli.utils import configure_logging
@@ -61,50 +62,87 @@ def optimize(
     ctx.ensure_object(dict)
     language = ctx.obj.get("language", "python")
 
+    run_optimization(OptimizeConfig(
+        input_file=str(input_file),
+        output=str(output),
+        method=method.value,
+        analysis_tool=analysis_tool.value,
+        model=model,
+        api_key=api_key,
+        api_base=api_base,
+        temperature=temperature,
+        reflection_model=reflection_model,
+        auto=auto,
+        coder_prompt=coder_prompt,
+        language=language,
+        backbone=backbone,
+        implementation=implementation,
+        output_cache=str(output_cache),
+        run_name=run_name,
+        project=project,
+        group=group,
+        batch_size=batch_size,
+        per_device_batch_size=per_device_batch_size,
+        lr=lr,
+        tokens=tokens,
+        wandb_enabled=wandb_enabled,
+        epochs=epochs,
+        seed=seed,
+        lora_rank=lora_rank,
+        dpo_beta=dpo_beta,
+        verbose=verbose,
+    ))
+
+
+def run_optimization(cfg: OptimizeConfig) -> None:
+    """Run optimization from an OptimizeConfig. Entry point for both CLI and sweep."""
+    configure_logging(cfg.verbose)
+    method = OptimizeMethods(cfg.method)
+
     if method in (OptimizeMethods.SFT_TK, OptimizeMethods.CONTRASTIVE_TK):
         _run_training_tk(
             method=method,
-            input_file=input_file,
-            implementation=implementation,
-            output_name=run_name,
-            lr=lr,
-            batch_size=batch_size,
-            epochs=epochs,
-            seed=seed,
-            lora_rank=lora_rank,
-            dpo_beta=dpo_beta,
+            input_file=Path(cfg.input_file),
+            implementation=cfg.implementation,
+            output_name=cfg.run_name,
+            lr=cfg.lr,
+            batch_size=cfg.batch_size,
+            epochs=cfg.epochs,
+            seed=cfg.seed,
+            lora_rank=cfg.lora_rank,
+            dpo_beta=cfg.dpo_beta,
         )
     elif method in (OptimizeMethods.SFT, OptimizeMethods.CONTRASTIVE):
         _run_training(
             method=method,
-            input_file=input_file,
-            backbone=backbone,
-            implementation=implementation,
-            output_cache=output_cache,
-            output=output,
-            run_name=run_name,
-            project=project,
-            group=group,
-            batch_size=batch_size,
-            per_device_batch_size=per_device_batch_size,
-            lr=lr,
-            tokens=tokens,
-            wandb_enabled=wandb_enabled,
+            input_file=Path(cfg.input_file),
+            backbone=cfg.backbone,
+            implementation=cfg.implementation,
+            output_cache=Path(cfg.output_cache),
+            output=Path(cfg.output),
+            run_name=cfg.run_name,
+            project=cfg.project,
+            group=cfg.group,
+            batch_size=cfg.batch_size,
+            per_device_batch_size=cfg.per_device_batch_size,
+            lr=cfg.lr,
+            tokens=cfg.tokens,
+            wandb_enabled=cfg.wandb_enabled,
         )
     else:
         _run_prompt_optimization(
             method=method,
-            input_file=input_file,
-            output=output,
-            analysis_tool=analysis_tool,
-            language=language,
-            model=model,
-            api_key=api_key,
-            api_base=api_base,
-            temperature=temperature,
-            reflection_model=reflection_model,
-            auto=auto,
-            coder_prompt=coder_prompt,
+            input_file=Path(cfg.input_file),
+            output=Path(cfg.output),
+            analysis_tool=AnalysisTool(cfg.analysis_tool),
+            language=cfg.language,
+            model=cfg.model,
+            api_key=cfg.api_key,
+            api_base=cfg.api_base,
+            temperature=cfg.temperature,
+            reflection_model=cfg.reflection_model,
+            auto=cfg.auto,
+            coder_prompt=cfg.coder_prompt,
         )
 
 
@@ -136,6 +174,9 @@ def _run_prompt_optimization(
     if auto is not None:
         optimizer_kwargs["auto"] = auto
 
+    if method == OptimizeMethods.GEPA and not reflection_model:
+        reflection_model = model
+
     if method == OptimizeMethods.GEPA and reflection_model:
         reflection_lm = create_lm(
             model_name=reflection_model,
@@ -146,30 +187,50 @@ def _run_prompt_optimization(
         optimizer_kwargs["reflection_lm"] = reflection_lm
         logger.info(f"Reflection model: {reflection_model}")
 
-    # Load input data
-    logger.info(f"Loading scenarios from {input_file}")
-    all_scenarios: list[dict] = []
+    # Load input data — supports both generate format (scenarios[].rollouts[])
+    # and amplify format (mcmc_failures[].rollouts[])
+    logger.info(f"Loading data from {input_file}")
+    all_records: list[dict] = []
     try:
         with jsonlines.open(input_file) as reader:
             for record in reader:
                 if not is_data_record(record):
                     continue
-                all_scenarios.extend(record.get("scenarios", []))
+                all_records.append(record)
     except Exception as e:
         logger.error(f"Failed to read input file: {e}")
         raise typer.Exit(code=1)
 
-    if not all_scenarios:
-        logger.error("No scenarios found in input file")
+    if not all_records:
+        logger.error("No data records found in input file")
         raise typer.Exit(code=1)
 
-    vuln_count = sum(
-        1
-        for s in all_scenarios
-        for r in s.get("rollouts", [])
-        if len(r.get("vulnerabilities", [])) > 0
-    )
-    logger.info(f"Loaded {len(all_scenarios)} scenarios ({vuln_count} vulnerable rollouts)")
+    # Detect format and flatten into the list that _build_examples expects
+    is_amplify = any("mcmc_failures" in r or "mcmc_successes" in r for r in all_records)
+    if is_amplify:
+        all_scenarios = all_records
+        vuln_count = sum(
+            1
+            for r in all_records
+            for chain in r.get("mcmc_failures", [])
+            for ro in chain.get("rollouts", [])
+            if len(ro.get("vulnerabilities", [])) > 0
+        )
+        logger.info(f"Loaded {len(all_records)} amplify records ({vuln_count} vulnerable rollouts)")
+    else:
+        all_scenarios = []
+        for record in all_records:
+            all_scenarios.extend(record.get("scenarios", []))
+        if not all_scenarios:
+            logger.error("No scenarios found in input file")
+            raise typer.Exit(code=1)
+        vuln_count = sum(
+            1
+            for s in all_scenarios
+            for r in s.get("rollouts", [])
+            if len(r.get("vulnerabilities", [])) > 0
+        )
+        logger.info(f"Loaded {len(all_scenarios)} scenarios ({vuln_count} vulnerable rollouts)")
 
     from redcodegen.optimize import optimize as run_optimize
     from redcodegen.generator.prompting import GenerateCode

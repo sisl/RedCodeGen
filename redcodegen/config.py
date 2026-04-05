@@ -90,6 +90,39 @@ class RegenerateConfig(BaseConfig):
     coder_prompt: str | None = None
 
 
+class OptimizeConfig(BaseConfig):
+    input_file: str = ""
+    output: str = ""
+    method: str = "gepa"
+    # Prompt optimization options (gepa, mipro)
+    analysis_tool: str = "semgrep"
+    model: str = "openai/gpt-4o-mini"
+    api_key: str | None = None
+    api_base: str | None = None
+    temperature: float = 1.0
+    reflection_model: str | None = None
+    auto: str | None = "light"
+    coder_prompt: str | None = None
+    language: str = "python"
+    # Training options (sft, contrastive)
+    backbone: str = "qwen"
+    implementation: str = "Qwen/Qwen2.5-0.5B"
+    output_cache: str = "./output/models/"
+    run_name: str = "rcg_run"
+    project: str = "redcodegen"
+    group: str = "e0"
+    batch_size: int = 16
+    per_device_batch_size: int = 2
+    lr: float = 1e-4
+    tokens: int = 50_000
+    wandb_enabled: bool = False
+    # Tinker training options (sft_tk, contrastive_tk)
+    epochs: int = 10
+    seed: int = 7
+    lora_rank: int = 32
+    dpo_beta: float = 0.1
+
+
 class AmplifyConfig(BaseConfig):
     input_file: str = ""
     output: str = ""
