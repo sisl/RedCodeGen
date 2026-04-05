@@ -1,0 +1,121 @@
+# Tunable Model Sweep — Prompt-Optimized
+# ----------------------------------------
+# Same 10x10 generate sweep as tunable.yaml, but each model uses a hardened
+# coder prompt produced by GEPA or MIPRO optimization.
+#
+# Output dirs are split by method (gepa/ vs mipro/) so runs for the same model
+# don't overwrite each other or the baseline sweeps.
+#
+# Usage:
+#   rcg sweep generate -r config/sweeps/tunable_prompt_optimized.yaml
+
+defaults:
+  - min_samples=10
+  - num_rollouts=10
+
+runs:
+  # ===== GEPA-optimized prompts =====
+
+  # GPT models (OpenAI API)
+  - name: gepa-gpt-5.4-nano
+    overrides:
+      - model=openai/gpt-5.4-nano
+      - coder_prompt=./output/sweeps/optimize_gepa_gpt_5.4_nano_t1p0.json
+      - output_dir=./output/sweeps/gepa/
+    api_key_env: OPENAI_API_KEY
+
+  - name: gepa-gpt-5.4-mini
+    overrides:
+      - model=openai/gpt-5.4-mini
+      - coder_prompt=./output/sweeps/optimize_gepa_gpt_5.4_mini_t1p0.json
+      - output_dir=./output/sweeps/gepa/
+    api_key_env: OPENAI_API_KEY
+
+  - name: gepa-gpt-5.4
+    overrides:
+      - model=openai/gpt-5.4
+      - coder_prompt=./output/sweeps/optimize_gepa_gpt_5.4_t1p0.json
+      - output_dir=./output/sweeps/gepa/
+    api_key_env: OPENAI_API_KEY
+
+  - name: gepa-gpt-5.3-codex
+    overrides:
+      - model=openai/gpt-5.3-codex
+      - coder_prompt=./output/sweeps/optimize_gepa_gpt_5.3_codex_t1p0.json
+      - output_dir=./output/sweeps/gepa/
+    api_key_env: OPENAI_API_KEY
+
+  # Open-weight models (vLLM)
+  - name: gepa-codellama-7b-instruct
+    overrides:
+      - model=openai/codellama/CodeLlama-7b-Instruct-hf
+      - api_base=http://grandtarghee.stanford.edu:8001/v1
+      - api_key=token-abc123
+      - coder_prompt=./output/sweeps/optimize_gepa_CodeLlama_7b_Instruct_hf_t1p0.json
+      - output_dir=./output/sweeps/gepa/
+
+  - name: gepa-qwen2.5-coder-7b-instruct
+    overrides:
+      - model=openai/Qwen/Qwen2.5-Coder-7B-Instruct
+      - api_base=http://bend.stanford.edu:8002/v1
+      - api_key=token-abc123
+      - coder_prompt=./output/sweeps/optimize_gepa_Qwen2.5_Coder_7B_Instruct_t1p0.json
+      - output_dir=./output/sweeps/gepa/
+
+  # NOTE: no GEPA prompt for Qwen2.5-Coder-14B (optimize run not available)
+
+  # ===== MIPRO-optimized prompts =====
+
+  # GPT models (OpenAI API)
+  - name: mipro-gpt-5.4-nano
+    overrides:
+      - model=openai/gpt-5.4-nano
+      - coder_prompt=./output/sweeps/optimize_mipro_gpt_5.4_nano_t1p0.json
+      - output_dir=./output/sweeps/mipro/
+    api_key_env: OPENAI_API_KEY
+
+  - name: mipro-gpt-5.4-mini
+    overrides:
+      - model=openai/gpt-5.4-mini
+      - coder_prompt=./output/sweeps/optimize_mipro_gpt_5.4_mini_t1p0.json
+      - output_dir=./output/sweeps/mipro/
+    api_key_env: OPENAI_API_KEY
+
+  - name: mipro-gpt-5.4
+    overrides:
+      - model=openai/gpt-5.4
+      - coder_prompt=./output/sweeps/optimize_mipro_gpt_5.4_t1p0.json
+      - output_dir=./output/sweeps/mipro/
+    api_key_env: OPENAI_API_KEY
+
+  - name: mipro-gpt-5.3-codex
+    overrides:
+      - model=openai/gpt-5.3-codex
+      - coder_prompt=./output/sweeps/optimize_mipro_gpt_5.3_codex_t1p0.json
+      - output_dir=./output/sweeps/mipro/
+    api_key_env: OPENAI_API_KEY
+
+  # Open-weight models (vLLM)
+  - name: mipro-codellama-7b-instruct
+    overrides:
+      - model=openai/codellama/CodeLlama-7b-Instruct-hf
+      - api_base=http://grandtarghee.stanford.edu:8001/v1
+      - api_key=token-abc123
+      - coder_prompt=./output/sweeps/optimize_mipro_CodeLlama_7b_Instruct_hf_t1p0.json
+      - output_dir=./output/sweeps/mipro/
+
+  - name: mipro-qwen2.5-coder-7b-instruct
+    overrides:
+      - model=openai/Qwen/Qwen2.5-Coder-7B-Instruct
+      - api_base=http://bend.stanford.edu:8002/v1
+      - api_key=token-abc123
+      - coder_prompt=./output/sweeps/optimize_mipro_Qwen2.5_Coder_7B_Instruct_t1p0.json
+      - output_dir=./output/sweeps/mipro/
+
+  - name: mipro-qwen2.5-coder-14b-instruct
+    overrides:
+      - model=openai/Qwen/Qwen2.5-Coder-14B-Instruct
+      - api_base=http://wroclaw.stanford.edu:8001/v1
+      - api_key=token-abc123
+      - coder_prompt=./output/sweeps/optimize_mipro_Qwen2.5_Coder_14B_Instruct_t1p0.json
+      - output_dir=./output/sweeps/mipro/

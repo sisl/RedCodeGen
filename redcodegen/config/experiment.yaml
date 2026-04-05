@@ -12,4 +12,9 @@ test_api_key: null
 test_api_base: null
 num_rollouts: 10
 reasoning_effort: null
+analysis_tool: semgrep
 checkpoint: null
+tk_checkpoint: null
+tk_model: null
+coder_prompt: null
+language: python
