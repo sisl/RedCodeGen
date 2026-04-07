@@ -1,0 +1,26 @@
+# Tunable Model Sweep — Prompt-Optimized (Claude)
+# --------------------------------------------------
+# Same 10x10 generate sweep as tunable_claude.yaml, but each model uses a
+# hardened coder prompt produced by GEPA optimization.
+#
+# Usage:
+#   rcg sweep generate -r config/sweeps/tunable_prompt_optimized_claude.yaml
+
+defaults:
+  - min_samples=10
+  - num_rollouts=10
+
+runs:
+  - name: gepa-claude-sonnet-4-6
+    overrides:
+      - model=anthropic/claude-sonnet-4-6
+      - coder_prompt=./output/sweeps/optimize_gepa_claude_sonnet_4_6_t1p0.json
+      - output_dir=./output/sweeps/gepa/
+    api_key_env: ANTHROPIC_API_KEY
+
+  - name: gepa-claude-opus-4-6
+    overrides:
+      - model=anthropic/claude-opus-4-6
+      - coder_prompt=./output/sweeps/optimize_gepa_claude_opus_4_6_t1p0.json
+      - output_dir=./output/sweeps/gepa/
+    api_key_env: ANTHROPIC_API_KEY

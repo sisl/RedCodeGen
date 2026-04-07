@@ -1,0 +1,22 @@
+# Tunable Model Sweep — Claude
+# ------------------------------
+# 10x10 generate sweep (10 scenarios x 10 rollouts per CWE) for Claude
+# Sonnet 4.6 and Opus 4.6.
+#
+# Usage:
+#   rcg sweep generate -r config/sweeps/tunable_claude.yaml
+
+defaults:
+  - min_samples=10
+  - num_rollouts=10
+
+runs:
+  - name: claude-sonnet-4-6
+    overrides:
+      - model=anthropic/claude-sonnet-4-6
+    api_key_env: ANTHROPIC_API_KEY
+
+  - name: claude-opus-4-6
+    overrides:
+      - model=anthropic/claude-opus-4-6
+    api_key_env: ANTHROPIC_API_KEY

@@ -1,0 +1,22 @@
+# Tunable Model Amplify Sweep — Claude
+# ---------------------------------------
+# MCMC amplification of each Claude model's own generated scenarios.
+# Each run pairs a model with its corresponding generate output.
+#
+# Usage:
+#   rcg sweep amplify -r config/sweeps/amplify_tunable_claude.yaml
+
+defaults: []
+
+runs:
+  - name: claude-sonnet-4-6
+    overrides:
+      - model=anthropic/claude-sonnet-4-6
+      - input_file=./output/sweeps/generated_scenarios_claude_sonnet_4_6_t1p0_n10_k10.jsonl
+    api_key_env: ANTHROPIC_API_KEY
+
+  - name: claude-opus-4-6
+    overrides:
+      - model=anthropic/claude-opus-4-6
+      - input_file=./output/sweeps/generated_scenarios_claude_opus_4_6_t1p0_n10_k10.jsonl
+    api_key_env: ANTHROPIC_API_KEY
