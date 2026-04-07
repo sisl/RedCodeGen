@@ -174,8 +174,10 @@ def _run_prompt_optimization(
     if auto is not None:
         optimizer_kwargs["auto"] = auto
 
+    DEFAULT_REFLECTION_MODEL = "openai/gpt-5.4"
+
     if method == OptimizeMethods.GEPA and not reflection_model:
-        reflection_model = model
+        reflection_model = DEFAULT_REFLECTION_MODEL
 
     if method == OptimizeMethods.GEPA and reflection_model:
         reflection_lm = create_lm(
@@ -186,6 +188,19 @@ def _run_prompt_optimization(
         )
         optimizer_kwargs["reflection_lm"] = reflection_lm
         logger.info(f"Reflection model: {reflection_model}")
+
+    if method == OptimizeMethods.MIPRO and not reflection_model:
+        reflection_model = DEFAULT_REFLECTION_MODEL
+
+    if method == OptimizeMethods.MIPRO and reflection_model:
+        prompt_lm = create_lm(
+            model_name=reflection_model,
+            temperature=temperature,
+            api_key=api_key or os.getenv("LLM_API_KEY"),
+            api_base=api_base or os.getenv("LLM_API_BASE"),
+        )
+        optimizer_kwargs["prompt_model"] = prompt_lm
+        logger.info(f"Prompt model: {reflection_model}")
 
     # Load input data — supports both generate format (scenarios[].rollouts[])
     # and amplify format (mcmc_failures[].rollouts[])

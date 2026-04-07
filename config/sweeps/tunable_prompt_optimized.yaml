@@ -62,7 +62,21 @@ runs:
       - coder_prompt=./output/sweeps/optimize_gepa_Qwen2.5_Coder_7B_Instruct_t1p0.json
       - output_dir=./output/sweeps/gepa/
 
-  # NOTE: no GEPA prompt for Qwen2.5-Coder-14B (optimize run not available)
+  - name: gepa-qwen3.5-35b-a3b
+    overrides:
+      - model=openai/Qwen/Qwen3.5-35B-A3B
+      - api_base=http://bend.stanford.edu:8001/v1
+      - api_key=token-abc123
+      - coder_prompt=./output/sweeps/optimize_gepa_Qwen3.5_35B_A3B_t1p0.json
+      - output_dir=./output/sweeps/gepa/
+
+  - name: gepa-qwen2.5-coder-14b-instruct
+    overrides:
+      - model=openai/Qwen/Qwen2.5-Coder-14B-Instruct
+      - api_base=http://wroclaw.stanford.edu:8001/v1
+      - api_key=token-abc123
+      - coder_prompt=./output/sweeps/optimize_gepa_Qwen2.5_Coder_14B_Instruct_t1p0.json
+      - output_dir=./output/sweeps/gepa/
 
   # ===== MIPRO-optimized prompts =====
 
@@ -110,6 +124,14 @@ runs:
       - api_base=http://bend.stanford.edu:8002/v1
       - api_key=token-abc123
       - coder_prompt=./output/sweeps/optimize_mipro_Qwen2.5_Coder_7B_Instruct_t1p0.json
+      - output_dir=./output/sweeps/mipro/
+
+  - name: mipro-qwen3.5-35b-a3b
+    overrides:
+      - model=openai/Qwen/Qwen3.5-35B-A3B
+      - api_base=http://bend.stanford.edu:8001/v1
+      - api_key=token-abc123
+      - coder_prompt=./output/sweeps/optimize_mipro_Qwen3.5_35B_A3B_t1p0.json
       - output_dir=./output/sweeps/mipro/
 
   - name: mipro-qwen2.5-coder-14b-instruct
