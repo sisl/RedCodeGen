@@ -183,8 +183,6 @@ def _run_prompt_optimization(
         reflection_lm = create_lm(
             model_name=reflection_model,
             temperature=temperature,
-            api_key=api_key or os.getenv("LLM_API_KEY"),
-            api_base=api_base or os.getenv("LLM_API_BASE"),
         )
         optimizer_kwargs["reflection_lm"] = reflection_lm
         logger.info(f"Reflection model: {reflection_model}")
@@ -196,8 +194,6 @@ def _run_prompt_optimization(
         prompt_lm = create_lm(
             model_name=reflection_model,
             temperature=temperature,
-            api_key=api_key or os.getenv("LLM_API_KEY"),
-            api_base=api_base or os.getenv("LLM_API_BASE"),
         )
         optimizer_kwargs["prompt_model"] = prompt_lm
         logger.info(f"Prompt model: {reflection_model}")
