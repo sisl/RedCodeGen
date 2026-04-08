@@ -338,7 +338,20 @@ def sweep_optimize(
         return cfg
 
     tasks = _build_sweep_tasks(config_name, overrides, runs_config, OptimizeConfig, post_build=_post_build)
-    _dispatch_sweep_tasks(tasks, n_workers, _run_optimize_task, "Optimization sweep")
+
+    # Skip runs whose output file already exists
+    filtered = []
+    for cfg, run_name in tasks:
+        if cfg.output and Path(cfg.output).exists():
+            logger.info(f"[{run_name}] Skipping — output already exists: {cfg.output}")
+        else:
+            filtered.append((cfg, run_name))
+
+    if not filtered:
+        logger.info("All optimize outputs already exist, nothing to do.")
+        return
+
+    _dispatch_sweep_tasks(filtered, n_workers, _run_optimize_task, "Optimization sweep")
 
 
 @sweep_app.callback(invoke_without_command=True)
