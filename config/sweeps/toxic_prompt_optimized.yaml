@@ -1,0 +1,25 @@
+# Toxic Model Sweep — Prompt-Optimized
+# --------------------------------------
+# Generate sweep using GEPA-hardened prompts from toxic-amplified scenarios.
+#
+# Usage:
+#   rcg sweep generate -r config/sweeps/toxic_prompt_optimized.yaml
+
+defaults:
+  - min_samples=10
+  - num_rollouts=10
+
+runs:
+  - name: gepa-gpt-5.3-codex
+    overrides:
+      - model=openai/gpt-5.3-codex
+      - coder_prompt=./output/toxic/optimize_gepa_gpt_5.3_codex_t1p0.json
+      - output_dir=./output/toxic/gepa/
+    api_key_env: OPENAI_API_KEY
+
+  - name: gepa-gpt-5.4
+    overrides:
+      - model=openai/gpt-5.4
+      - coder_prompt=./output/toxic/optimize_gepa_gpt_5.4_t1p0.json
+      - output_dir=./output/toxic/gepa/
+    api_key_env: OPENAI_API_KEY
