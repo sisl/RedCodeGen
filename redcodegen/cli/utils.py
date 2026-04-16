@@ -46,7 +46,8 @@ def append_to_jsonl(record: Dict[str, Any], output_path: Path):
     """
     with jsonlines.open(output_path, mode='a') as writer:
         writer.write(record)
-    logger.info(f"Saved CWE-{record['cwe_id']} to {output_path}")
+    record_label = f"CWE-{record['cwe_id']}" if 'cwe_id' in record else record.get('task_id', 'record')
+    logger.info(f"Saved {record_label} to {output_path}")
 
 def get_environment_info() -> Dict[str, Any]:
     """Collect environment metadata for reproducibility."""
