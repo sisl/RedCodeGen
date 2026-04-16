@@ -80,9 +80,14 @@ class Scenario:
 
 @dataclass
 class CWERecord:
-    cwe_id: int
+    cwe_id: int | str
     cwe_description: str
     scenarios: list[Scenario]
+    display_prefix: str = "CWE-"
+
+    @property
+    def display_label(self) -> str:
+        return f"{self.display_prefix}{self.cwe_id}"
 
     @property
     def total_rollouts(self) -> int:
@@ -367,6 +372,37 @@ def _load_record_old_format(record: dict[str, Any]) -> CWERecord:
     )
 
 
+def _load_record_swechat_format(record: dict[str, Any]) -> CWERecord:
+    """Load a record from swechat output (task_id + flat rollouts)."""
+    rollouts = []
+    for ro in record.get("rollouts", []):
+        rollouts.append(
+            Rollout(
+                code=ro.get("code", ""),
+                passes_tests=ro.get("passes_tests"),
+                vulnerabilities=_parse_vulnerabilities(ro.get("vulnerabilities")),
+                test_details=_parse_test_details(ro.get("test_details")),
+            )
+        )
+    # Wrap into a single scenario using the task description
+    task_desc = record.get("task_description", "")
+    scenario = Scenario(
+        description=task_desc[:200] if task_desc else "(no description)",
+        tests=None,
+        rollouts=rollouts,
+    )
+    repo_id = record.get("repo_id", "")
+    desc = task_desc
+    if repo_id:
+        desc = f"[{repo_id}] {desc}"
+    return CWERecord(
+        cwe_id=record["task_id"],
+        cwe_description=desc,
+        scenarios=[scenario],
+        display_prefix="",
+    )
+
+
 def load_data(
     path: Path,
 ) -> tuple[list[CWERecord], dict[str, Any] | None]:
@@ -378,7 +414,9 @@ def load_data(
     records = read_data_records(path)
     cwes = []
     for record in records:
-        if "scenarios" in record:
+        if "task_id" in record:
+            cwes.append(_load_record_swechat_format(record))
+        elif "scenarios" in record:
             cwes.append(_load_record_new_format(record))
         elif "samples" in record:
             cwes.append(_load_record_old_format(record))
@@ -722,18 +760,18 @@ class ExploreApp(App[None]):
         self._show_root_view()
 
     def _populate_tree(self) -> None:
-        self._cwes.sort(key=lambda c: c.cwe_id)
+        self._cwes.sort(key=lambda c: str(c.cwe_id))
         tree = self.query_one("#nav-tree", CWETree)
         root = tree.root
         total_r = sum(c.total_rollouts for c in self._cwes)
-        root.set_label(f"Results ({len(self._cwes)} CWEs, {total_r} rollouts)")
+        root.set_label(f"Results ({len(self._cwes)} records, {total_r} rollouts)")
         root.data = NodeData(kind=NodeKind.ROOT)
 
         for ci, cwe in enumerate(self._cwes):
             ns = len(cwe.scenarios)
             nr = cwe.total_rollouts
             cwe_label = (
-                f"CWE-{cwe.cwe_id} "
+                f"{cwe.display_label} "
                 f"({ns} Scenario{'s' if ns != 1 else ''}, "
                 f"{nr} Rollout{'s' if nr != 1 else ''})"
             )
@@ -821,14 +859,14 @@ class ExploreApp(App[None]):
         stats = _compute_rollout_stats(all_rollouts)
         total_scenarios = sum(len(c.scenarios) for c in self._cwes)
 
-        header = f"CWEs: {len(self._cwes)}  |  Scenarios: {total_scenarios}"
+        header = f"Records: {len(self._cwes)}  |  Scenarios: {total_scenarios}"
         container.mount(Static(header, classes="stats-label"))
         container.mount(Static(_format_stats_block(stats), classes="stats-label"))
 
-        # CWE summary table
+        # Summary table
         table = DataTable()
         col_keys = table.add_columns(
-            "CWE", "Scenarios", "Rollouts", "Pass", "Fail",
+            "ID", "Scenarios", "Rollouts", "Pass", "Fail",
             "Test Pass Rate",
             "Vuln Rate", "Vuln Rate (Tests Pass)", "Vuln Rate (Tests Fail)",
             "Sev Avg", "Sev Min", "Sev Max",
@@ -837,7 +875,7 @@ class ExploreApp(App[None]):
             cwe_rollouts = [r for s in cwe.scenarios for r in s.rollouts]
             cs = _compute_rollout_stats(cwe_rollouts)
             table.add_row(
-                str(cwe.cwe_id),
+                cwe.display_label,
                 str(len(cwe.scenarios)),
                 str(cs["total"]),
                 str(cs["passing"]),
@@ -850,7 +888,7 @@ class ExploreApp(App[None]):
                 cs["severity_min"],
                 cs["severity_max"],
             )
-        container.mount(Static("CWE Overview:", classes="detail-section"))
+        container.mount(Static("Overview:", classes="detail-section"))
         container.mount(table)
         table.sort(col_keys[6], key=_sort_key, reverse=True)
 
@@ -859,7 +897,7 @@ class ExploreApp(App[None]):
         container = self.query_one("#detail-pane", VerticalScroll)
         cwe = self._cwes[cwe_idx]
 
-        container.mount(Static(f"CWE-{cwe.cwe_id}", classes="detail-title"))
+        container.mount(Static(cwe.display_label, classes="detail-title"))
         container.mount(Static(cwe.cwe_description, classes="stats-label"))
 
         # Aggregate stats for this CWE
@@ -898,7 +936,7 @@ class ExploreApp(App[None]):
         scenario = cwe.scenarios[scenario_idx]
 
         # Build header with test count if available
-        header = f"CWE-{cwe.cwe_id} / Scenario {scenario_idx + 1}"
+        header = f"{cwe.display_label} / Scenario {scenario_idx + 1}"
         test_counts = [
             r.test_details for r in scenario.rollouts if r.test_details is not None
         ]
@@ -974,7 +1012,7 @@ class ExploreApp(App[None]):
 
         container.mount(
             Static(
-                f"CWE-{cwe.cwe_id} / S{scenario_idx + 1} / "
+                f"{cwe.display_label} / S{scenario_idx + 1} / "
                 f"R{rollout_idx + 1}",
                 classes="detail-title",
             )
@@ -1117,8 +1155,9 @@ class ExploreApp(App[None]):
             scenario = cwe.scenarios[data.scenario_idx]  # type: ignore[index]
             rollout = scenario.rollouts[data.rollout_idx]  # type: ignore[index]
             content = rollout.code
+            safe_id = str(cwe.cwe_id).replace("/", "_")[:40]
             default_name = (
-                f"cwe{cwe.cwe_id}_s{data.scenario_idx + 1}"  # type: ignore[operator]
+                f"{safe_id}_s{data.scenario_idx + 1}"  # type: ignore[operator]
                 f"_r{data.rollout_idx + 1}{ext}"  # type: ignore[operator]
             )
         elif data.kind == NodeKind.SCENARIO:
@@ -1126,8 +1165,9 @@ class ExploreApp(App[None]):
             scenario = cwe.scenarios[data.scenario_idx]  # type: ignore[index]
             if scenario.tests:
                 content = scenario.tests
+                safe_id = str(cwe.cwe_id).replace("/", "_")[:40]
                 default_name = (
-                    f"cwe{cwe.cwe_id}_s{data.scenario_idx + 1}_tests{ext}"  # type: ignore[operator]
+                    f"{safe_id}_s{data.scenario_idx + 1}_tests{ext}"  # type: ignore[operator]
                 )
             else:
                 self.notify("No tests to save for this scenario", severity="warning")
@@ -1156,8 +1196,9 @@ class ExploreApp(App[None]):
             self.notify("No tests available for this scenario", severity="warning")
             return
 
+        safe_id = str(cwe.cwe_id).replace("/", "_")[:40]
         default_dir = (
-            f"cwe{cwe.cwe_id}_s{data.scenario_idx + 1}"  # type: ignore[operator]
+            f"{safe_id}_s{data.scenario_idx + 1}"  # type: ignore[operator]
             f"_r{data.rollout_idx + 1}"  # type: ignore[operator]
         )
 
@@ -1216,7 +1257,7 @@ def explore(
 
     cwes, config = load_data(path)
     if not cwes:
-        typer.echo("No CWE records found in file.", err=True)
+        typer.echo("No records found in file.", err=True)
         raise typer.Exit(1)
 
     tui_app = ExploreApp(cwes, config, str(path))
