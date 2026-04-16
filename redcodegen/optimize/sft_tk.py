@@ -53,22 +53,25 @@ def _generate_tk_dataset(path, tokenizer):
     # apply standard finetuning template and convert to dicts
     prompts = [template_to_dict(template(*i)) for i in prompts]
 
-    # split so we can apply loss only on the response tokens
-    responses = [[i[-1]] for i in prompts]
-    inputs = [i[:-1] for i in prompts]
+    # tokenize the full conversation and the prefix (system + user + assistant-turn opener)
+    # via add_generation_prompt so we can locate where the response tokens begin
+    full_tokens = [tokenizer.apply_chat_template(p, tokenize=True)["input_ids"] for p in prompts]
+    prefix_tokens = [
+        tokenizer.apply_chat_template(p[:-1], tokenize=True, add_generation_prompt=True)["input_ids"]
+        for p in prompts
+    ]
 
-    responses = [tokenizer.apply_chat_template(i)["input_ids"] for i in responses]
-    inputs = [tokenizer.apply_chat_template(i)["input_ids"] for i in inputs]
-
-    # construct Tinker Datum with CE loss weights for masking prompt tokens
+    # construct Tinker Datum with CE loss weights on the response tokens only
     data = []
-    for i, j in zip(inputs, responses):
-        sample = i + j
+    for full, prefix in zip(full_tokens, prefix_tokens):
+        prefix_len = len(prefix)
+        # targets are full[1:]; mask the first (prefix_len - 1) target positions
+        weights = [0] * (prefix_len - 1) + [1] * (len(full) - prefix_len)
         data.append(types.Datum(
-            model_input=types.ModelInput.from_ints(tokens=sample[:-1]),
+            model_input=types.ModelInput.from_ints(tokens=full[:-1]),
             loss_fn_inputs=dict(
-                weights=([0 for _ in range(len(i))] + [1 for _ in range(len(j))])[1:],
-                target_tokens=sample[1:]
+                weights=weights,
+                target_tokens=full[1:]
             )
         ))
     return data
