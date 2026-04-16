@@ -24,6 +24,23 @@ SWECHAT_TASK_PROMPT = (
 )
 
 
+class RephraseToCodingPrompt(dspy.Signature):
+    """You are given a software engineering task that describes changes to a codebase.
+    Rephrase it into a focused, single-file coding prompt. The output prompt should
+    describe exactly what one self-contained source file should implement — the key
+    functions, classes, or logic — so that a code-generation model can produce it
+    without needing to touch multiple files. Distill the codebase context and task
+    into concrete requirements (inputs, outputs, behavior) rather than referencing
+    the repo structure."""
+
+    raw_prompt: str = dspy.InputField(desc="The raw task prompt including codebase summary and task description")
+    language: str = dspy.InputField()
+    coding_prompt: str = dspy.OutputField(desc="A focused, single-file coding prompt with concrete requirements")
+
+
+rephraser = dspy.ChainOfThought(RephraseToCodingPrompt)
+
+
 def load_swechat_tasks(input_path: Path) -> list[dict]:
     """Load tasks from a SWE-chat JSON file."""
     with open(input_path) as f:
@@ -54,6 +71,7 @@ def load_completed_task_ids(output_path: Path) -> Set[str]:
 
 def build_swechat_record(
     task: dict,
+    coding_prompt: str,
     rollouts: list[dict],
     model_config: dict,
 ) -> Dict[str, Any]:
@@ -64,6 +82,7 @@ def build_swechat_record(
         "branch": task.get("branch"),
         "task_description": task["task_description"],
         "pre_codebase_summary": task["pre_codebase_summary"],
+        "coding_prompt": coding_prompt,
         "ground_truth_vulnerabilities": task.get("vulnerabilities"),
         "timestamp": datetime.datetime.utcnow().isoformat() + 'Z',
         "model_config": model_config,
@@ -191,11 +210,18 @@ def run_swechat(config: GenerateConfig, input_path: Path):
         logger.info(f"[{idx}/{len(tasks_to_process)}] Processing task {task_id} ({repo_id})...")
 
         try:
-            # Build the coding prompt
-            coding_prompt = SWECHAT_TASK_PROMPT.format(
+            # Build the raw prompt and rephrase into a focused single-file coding prompt
+            raw_prompt = SWECHAT_TASK_PROMPT.format(
                 pre_codebase_summary=task["pre_codebase_summary"],
                 task_description=task["task_description"],
             )
+            with dspy.settings.context(lm=test_lm):
+                coding_prompt = rephraser(
+                    raw_prompt=raw_prompt,
+                    language=config.language,
+                ).coding_prompt
+            logger.info(f"  Rephrased prompt ({len(coding_prompt)} chars)")
+            logger.debug(f"  Rephrased prompt: {coding_prompt[:200]}...")
 
             # Generate test using test_lm
             test_code = None
@@ -252,6 +278,7 @@ def run_swechat(config: GenerateConfig, input_path: Path):
             # Build and save record
             record = build_swechat_record(
                 task=task,
+                coding_prompt=coding_prompt,
                 rollouts=rollouts,
                 model_config=model_config,
             )
