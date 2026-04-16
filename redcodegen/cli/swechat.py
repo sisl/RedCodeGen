@@ -31,7 +31,12 @@ class RephraseToCodingPrompt(dspy.Signature):
     functions, classes, or logic — so that a code-generation model can produce it
     without needing to touch multiple files. Distill the codebase context and task
     into concrete requirements (inputs, outputs, behavior) rather than referencing
-    the repo structure."""
+    the repo structure.
+
+    Thus, your single-file description should not include "phrases", or references
+    to specific paths. Instead, it should start with "write a script that ...." and
+    contain all needed changes in one file.
+    """
 
     raw_prompt: str = dspy.InputField(desc="The raw task prompt including codebase summary and task description")
     language: str = dspy.InputField()
