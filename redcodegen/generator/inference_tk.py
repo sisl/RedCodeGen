@@ -73,7 +73,15 @@ class TinkerCodeGenerator:
         tokens = self.tokenizer.apply_chat_template(
             messages, tokenize=True, add_generation_prompt=True
         )
-        return tokens
+        # Newer tokenizers may return a BatchEncoding dict rather than a plain list
+        if hasattr(tokens, "input_ids"):
+            tokens = tokens.input_ids
+        elif isinstance(tokens, dict) and "input_ids" in tokens:
+            tokens = tokens["input_ids"]
+        # Flatten nested single-batch lists
+        if tokens and isinstance(tokens[0], list):
+            tokens = tokens[0]
+        return list(tokens)
 
     def generate(self, task):
         tokens = self.__format_task(task)
