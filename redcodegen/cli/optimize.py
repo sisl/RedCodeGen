@@ -105,6 +105,7 @@ def run_optimization(cfg: OptimizeConfig) -> None:
             input_file=Path(cfg.input_file),
             implementation=cfg.implementation,
             output_name=cfg.run_name,
+            output=Path(cfg.output),
             lr=cfg.lr,
             batch_size=cfg.batch_size,
             epochs=cfg.epochs,
@@ -330,6 +331,7 @@ def _run_training_tk(
     input_file: Path,
     implementation: str,
     output_name: str,
+    output: Path,
     lr: float,
     batch_size: int,
     epochs: int,
@@ -368,4 +370,8 @@ def _run_training_tk(
             lora_rank=lora_rank,
         )
 
+    output.mkdir(parents=True, exist_ok=True)
+    path_file = output / "tinker_sampling_path.txt"
+    path_file.write_text(f"{implementation}\n{sampling_path}\n")
     logger.info(f"Tinker {method.value} training complete. Sampling weights: {sampling_path}")
+    logger.info(f"Saved sampling path reference to {path_file}")

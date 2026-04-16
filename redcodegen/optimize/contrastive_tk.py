@@ -21,17 +21,20 @@ from redcodegen.optimize.common import (
 def _make_datum(prompt, code, tokenizer):
     """Build a Tinker Datum and return its full token sequence."""
     msgs = template_to_dict(template(prompt, code))
-    resp_ids = tokenizer.apply_chat_template([msgs[-1]])["input_ids"]
-    inp_ids = tokenizer.apply_chat_template(msgs[:-1])["input_ids"]
-    sample = inp_ids + resp_ids
+    full_ids = tokenizer.apply_chat_template(msgs, tokenize=True)["input_ids"]
+    prefix_ids = tokenizer.apply_chat_template(
+        msgs[:-1], tokenize=True, add_generation_prompt=True
+    )["input_ids"]
+    prefix_len = len(prefix_ids)
+    weights = [0] * (prefix_len - 1) + [1] * (len(full_ids) - prefix_len)
     datum = types.Datum(
-        model_input=types.ModelInput.from_ints(tokens=sample[:-1]),
+        model_input=types.ModelInput.from_ints(tokens=full_ids[:-1]),
         loss_fn_inputs=dict(
-            weights=([0] * len(inp_ids) + [1] * len(resp_ids))[1:],
-            target_tokens=sample[1:],
+            weights=weights,
+            target_tokens=full_ids[1:],
         ),
     )
-    return datum, sample
+    return datum, full_ids
 
 
 def _generate_tk_contrastive_dataset(path, tokenizer):
