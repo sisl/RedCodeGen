@@ -1,0 +1,31 @@
+# SWE-Chat Tunable Model Sweep (OpenAI only)
+# --------------------------------------------
+# 10-rollout sweep across GPT family on SWE-chat tasks.
+#
+# Usage:
+#   rcg sweep swechat -r config/sweeps/swechat_tunable.yaml -i data/swe-chat-for-redcodegen-tasks_2026-04-16_02-23-29.json
+
+defaults:
+  - num_rollouts=10
+  - output_dir=./output/sweeps/swechat
+
+runs:
+  - name: gpt-5.4-nano
+    overrides:
+      - model=openai/gpt-5.4-nano
+    api_key_env: OPENAI_API_KEY
+
+  - name: gpt-5.4-mini
+    overrides:
+      - model=openai/gpt-5.4-mini
+    api_key_env: OPENAI_API_KEY
+
+  - name: gpt-5.4
+    overrides:
+      - model=openai/gpt-5.4
+    api_key_env: OPENAI_API_KEY
+
+  - name: gpt-5.3-codex
+    overrides:
+      - model=openai/gpt-5.3-codex
+    api_key_env: OPENAI_API_KEY

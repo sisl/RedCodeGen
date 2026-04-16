@@ -1,0 +1,40 @@
+# SWE-Chat Tunable Model Sweep — Prompt-Optimized (OpenAI only)
+# ---------------------------------------------------------------
+# Same sweep as swechat_tunable.yaml, but each model uses a hardened
+# coder prompt produced by GEPA optimization.
+#
+# Usage:
+#   rcg sweep swechat -r config/sweeps/swechat_tunable_prompt_optimized.yaml -i data/swe-chat-for-redcodegen-tasks_2026-04-16_02-23-29.json
+
+defaults:
+  - num_rollouts=10
+  - output_dir=./output/sweeps/gepa/swechat
+
+runs:
+  - name: gepa-gpt-5.4-nano
+    overrides:
+      - model=openai/gpt-5.4-nano
+      - coder_prompt=./output/sweeps/optimize_gepa_gpt_5.4_nano_t1p0.json
+      - output_dir=./output/sweeps/gepa/swechat
+    api_key_env: OPENAI_API_KEY
+
+  - name: gepa-gpt-5.4-mini
+    overrides:
+      - model=openai/gpt-5.4-mini
+      - coder_prompt=./output/sweeps/optimize_gepa_gpt_5.4_mini_t1p0.json
+      - output_dir=./output/sweeps/gepa/swechat
+    api_key_env: OPENAI_API_KEY
+
+  - name: gepa-gpt-5.4
+    overrides:
+      - model=openai/gpt-5.4
+      - coder_prompt=./output/sweeps/optimize_gepa_gpt_5.4_t1p0.json
+      - output_dir=./output/sweeps/gepa/swechat
+    api_key_env: OPENAI_API_KEY
+
+  - name: gepa-gpt-5.3-codex
+    overrides:
+      - model=openai/gpt-5.3-codex
+      - coder_prompt=./output/sweeps/optimize_gepa_gpt_5.3_codex_t1p0.json
+      - output_dir=./output/sweeps/gepa/swechat
+    api_key_env: OPENAI_API_KEY

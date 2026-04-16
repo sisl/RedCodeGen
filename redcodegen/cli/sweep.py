@@ -15,6 +15,7 @@ from redcodegen.cli.generate import generate_scenarios
 from redcodegen.cli.regenerate import run_regeneration
 from redcodegen.cli.amplify import run_amplification
 from redcodegen.cli.optimize import run_optimization
+from redcodegen.cli.swechat import run_swechat
 
 sweep_app = typer.Typer(
     name="sweep",
@@ -210,6 +211,14 @@ def _run_optimize_task(task):
     logger.info(f"[{run_name}] Completed.")
 
 
+def _run_swechat_task(task):
+    cfg, input_path, run_name = task
+    configure_logging(verbose=cfg.verbose)
+    logger.info(f"[{run_name}] Starting swechat generation...")
+    run_swechat(cfg, input_path)
+    logger.info(f"[{run_name}] Completed.")
+
+
 # ---------------------------------------------------------------------------
 # Sweep subcommands
 # ---------------------------------------------------------------------------
@@ -352,6 +361,61 @@ def sweep_optimize(
         return
 
     _dispatch_sweep_tasks(filtered, n_workers, _run_optimize_task, "Optimization sweep")
+
+
+@sweep_app.command("swechat")
+def sweep_swechat(
+    config_name: str = "experiment",
+    overrides: list[str] = typer.Argument(default=None),
+    runs_config: Path | None = typer.Option(
+        None, "--runs-config", "-r",
+        exists=True, file_okay=True, dir_okay=False, resolve_path=True,
+        help="YAML file with runs.",
+    ),
+    workers: int | None = typer.Option(
+        None, "--workers", "-w",
+        help="Number of parallel workers (default: CPU count). Use 1 for serial execution.",
+    ),
+    input_file: Path = typer.Option(
+        ..., "--input", "-i",
+        exists=True, file_okay=True, dir_okay=False, resolve_path=True,
+        help="Path to the SWE-chat JSON file.",
+    ),
+):
+    """Run a sweep of swechat generations across different models."""
+    configure_logging(verbose=False)
+    n_workers = workers if workers is not None else os.cpu_count()
+    logger.info(f"Starting swechat sweep ({n_workers} worker(s))...")
+
+    tasks = _build_sweep_tasks(config_name, overrides, runs_config, GenerateConfig)
+    # Re-pack tasks to include input_path for the swechat worker
+    swechat_tasks = [(cfg, input_file, run_name) for cfg, run_name in tasks]
+
+    if n_workers <= 1 or len(swechat_tasks) <= 1:
+        for task in swechat_tasks:
+            cfg, _, run_name = task
+            configure_logging(verbose=cfg.verbose)
+            logger.info(f"[{run_name}] Starting...")
+            _run_swechat_task(task)
+            logger.info(f"[{run_name}] Completed.")
+    else:
+        with ProcessPoolExecutor(max_workers=min(n_workers, len(swechat_tasks))) as pool:
+            future_to_name = {
+                pool.submit(_run_swechat_task, task): task[2]
+                for task in swechat_tasks
+            }
+            completed = 0
+            failed = 0
+            for future in as_completed(future_to_name):
+                run_name = future_to_name[future]
+                try:
+                    future.result()
+                    completed += 1
+                except Exception as e:
+                    logger.error(f"[{run_name}] Failed: {e}")
+                    failed += 1
+
+        logger.info(f"Swechat sweep finished: {completed} completed, {failed} failed out of {len(swechat_tasks)} runs")
 
 
 @sweep_app.callback(invoke_without_command=True)
