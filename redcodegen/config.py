@@ -26,6 +26,7 @@ class GenerateConfig(BaseConfig):
     tk_checkpoint: str | None = None
     tk_model: str | None = None
     coder_prompt: str | None = None
+    debug_log: str | None = None
 
     @field_validator("reasoning_effort", mode="before")
     @classmethod
@@ -72,7 +73,7 @@ class GenerateConfig(BaseConfig):
 
     def to_record(self) -> dict:
         """Serialize config for JSONL output, excluding secrets and internal fields."""
-        return self.model_dump(mode="json", exclude={"api_key", "test_api_key", "api_base", "test_api_base", "verbose"})
+        return self.model_dump(mode="json", exclude={"api_key", "test_api_key", "api_base", "test_api_base", "verbose", "debug_log"})
 
 
 class RegenerateConfig(BaseConfig):

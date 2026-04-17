@@ -1,4 +1,5 @@
 import os
+import json
 import typer
 import jsonlines
 import datetime
@@ -14,7 +15,7 @@ from redcodegen.constants import CWE_TOP_25, create_lm
 from redcodegen.analyzers.common import AnalysisTool
 from redcodegen.config import GenerateConfig
 from redcodegen.cli.common import is_data_record, read_config_record
-from redcodegen.cli.utils import configure_logging, append_to_jsonl, get_model_config, get_environment_info
+from redcodegen.cli.utils import configure_logging, append_to_jsonl, get_model_config, get_environment_info, FailedPromptCallback
 from redcodegen.cli.app import app
 
 def load_completed_cwes(output_path: Path) -> Set[int]:
@@ -91,6 +92,13 @@ def generate_scenarios(config: GenerateConfig):
         "test_api_key": "***" if config.test_api_key else None,
     })
     logger.debug(f"Starting generation with config: {safe_config}")
+
+    # Wire up debug log capture for failing LM prompts before any DSPy calls
+    if config.debug_log:
+        debug_callback = FailedPromptCallback(Path(config.debug_log))
+        existing_callbacks = list(dspy.settings.get("callbacks", []) or [])
+        dspy.configure(callbacks=existing_callbacks + [debug_callback])
+        logger.info(f"Debug log enabled: failing LM prompts will be written to {debug_callback.log_path.absolute()}")
 
     # Create test model (trusted infrastructure model)
     test_lm = create_lm(
@@ -325,6 +333,20 @@ def generate_scenarios(config: GenerateConfig):
 
         except Exception as e:
             logger.error(f"✗ Failed to process CWE-{cwe_id}: {e}")
+            if config.debug_log:
+                import traceback as _tb
+                try:
+                    with open(config.debug_log, 'a') as f:
+                        f.write(json.dumps({
+                            "timestamp": datetime.datetime.utcnow().isoformat() + 'Z',
+                            "cwe_id": cwe_id,
+                            "stage": "cwe_processing",
+                            "exception_type": type(e).__name__,
+                            "exception": str(e),
+                            "traceback": _tb.format_exc(),
+                        }, default=str) + '\n')
+                except Exception as write_err:
+                    logger.warning(f"Failed to write debug log entry: {write_err}")
             continue
 
     # Final summary
@@ -378,6 +400,7 @@ def generate(
     tk_checkpoint: str | None = typer.Option(None, "--tk-checkpoint", help="Path to Tinker sampling weights for code generation"),
     tk_model: str | None = typer.Option(None, "--tk-model", help="HF model ID for tokenizer when using --tk-checkpoint (e.g. Qwen/Qwen3-4B-Instruct-2507)"),
     coder_prompt: str | None = typer.Option(None, "--coder-prompt", "-c", help="Path to a JSON file with a hardened coder prompt to load"),
+    debug_log: str | None = typer.Option(None, "--debug", help="Path to a debug log file; failing LM prompts and CWE errors will be written here as JSONL"),
 ):
     """Generate scenarios that induce vulnerabilities in LLM-generated code.
 
@@ -410,6 +433,7 @@ def generate(
         tk_checkpoint=tk_checkpoint,
         tk_model=tk_model,
         coder_prompt=coder_prompt,
+        debug_log=debug_log,
     )
 
     configure_logging(config.verbose)
