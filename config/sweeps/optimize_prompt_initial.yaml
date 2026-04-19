@@ -1,0 +1,45 @@
+# Initial Prompt Optimize Sweep (GPT models, generate inputs)
+# -----------------------------------------------------------
+# GEPA prompt optimization using the raw generate sweep outputs
+# (instead of amplify outputs). Limited to the GPT family.
+#
+# Usage:
+#   rcg sweep optimize -r config/sweeps/optimize_prompt_initial.yaml
+
+defaults: []
+
+runs:
+  # --- GEPA ---
+
+  # GPT models (OpenAI API)
+  - name: gepa-gpt-5.4-nano
+    overrides:
+      - method=gepa
+      - model=openai/gpt-5.4-nano
+      - input_file=./output/sweeps/generated_scenarios_gpt_5.4_nano_t1p0_n10_k10.jsonl
+      - output=./output/sweeps/optimize_prompt_initial_gepa_gpt_5.4_nano_t1p0.json
+    api_key_env: OPENAI_API_KEY
+
+  - name: gepa-gpt-5.4-mini
+    overrides:
+      - method=gepa
+      - model=openai/gpt-5.4-mini
+      - input_file=./output/sweeps/generated_scenarios_gpt_5.4_mini_t1p0_n10_k10.jsonl
+      - output=./output/sweeps/optimize_prompt_initial_gepa_gpt_5.4_mini_t1p0.json
+    api_key_env: OPENAI_API_KEY
+
+  - name: gepa-gpt-5.4
+    overrides:
+      - method=gepa
+      - model=openai/gpt-5.4
+      - input_file=./output/sweeps/generated_scenarios_gpt_5.4_t1p0_n10_k10.jsonl
+      - output=./output/sweeps/optimize_prompt_initial_gepa_gpt_5.4_t1p0.json
+    api_key_env: OPENAI_API_KEY
+
+  - name: gepa-gpt-5.3-codex
+    overrides:
+      - method=gepa
+      - model=openai/gpt-5.3-codex
+      - input_file=./output/sweeps/generated_scenarios_gpt_5.3_codex_t1p0_n10_k10.jsonl
+      - output=./output/sweeps/optimize_prompt_initial_gepa_gpt_5.3_codex_t1p0.json
+    api_key_env: OPENAI_API_KEY
