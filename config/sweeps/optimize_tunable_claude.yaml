@@ -11,15 +11,17 @@ runs:
   - name: gepa-claude-sonnet-4-6
     overrides:
       - method=gepa
-      - model=anthropic/claude-sonnet-4-6
+      - model=openai/claude-sonnet-4-6
+      - api_base=https://aiapi-prod.stanford.edu/v1/
       - input_file=./output/sweeps/amplify_claude_sonnet_4_6_t0p8.jsonl
       - output=./output/sweeps/optimize_gepa_claude_sonnet_4_6_t1p0.json
-    api_key_env: ANTHROPIC_API_KEY
+    api_key_env: PLAYGROUND_API_KEY
 
   - name: gepa-claude-opus-4-6
     overrides:
       - method=gepa
-      - model=anthropic/claude-opus-4-6
+      - model=openai/claude-opus-4-6
+      - api_base=https://aiapi-prod.stanford.edu/v1/
       - input_file=./output/sweeps/amplify_claude_opus_4_6_t0p8.jsonl
       - output=./output/sweeps/optimize_gepa_claude_opus_4_6_t1p0.json
-    api_key_env: ANTHROPIC_API_KEY
+    api_key_env: PLAYGROUND_API_KEY
