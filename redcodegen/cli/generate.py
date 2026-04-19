@@ -240,64 +240,88 @@ def generate_scenarios(config: GenerateConfig):
                     f"{scenario[:80]}{'...' if len(scenario) > 80 else ''}"
                 )
 
-                # Generate test using test_lm
-                test_code = None
                 try:
-                    test_code = generate_test_with_model(scenario, test_lm, language=config.language)
-                    logger.info("    Test generated successfully")
-                except Exception as e:
-                    logger.warning(f"    Test generation failed: {e}")
+                    # Generate test using test_lm
+                    test_code = None
+                    try:
+                        test_code = generate_test_with_model(scenario, test_lm, language=config.language)
+                        logger.info("    Test generated successfully")
+                    except Exception as e:
+                        logger.warning(f"    Test generation failed: {e}")
 
-                # Generate K rollouts using code_lm (global default)
-                logger.info(f"    Generating {config.num_rollouts} rollout(s)...")
-                codes = run_k(scenario, config.num_rollouts, test_code=test_code or "", language=config.language)
+                    # Generate K rollouts using code_lm (global default)
+                    logger.info(f"    Generating {config.num_rollouts} rollout(s)...")
+                    codes = run_k(scenario, config.num_rollouts, test_code=test_code or "", language=config.language)
 
-                # Evaluate rollouts in parallel (I/O-bound: tests + semgrep)
-                # Implement this inline to avoid having to repeatedly pass the tests
-                def _process_rollout(code):
-                    passes_tests = None
-                    test_details = None
-                    if test_code is not None:
-                        test_result = run_tests(code, test_code, language=config.language)
-                        passes_tests = test_result["passed"]
-                        test_details = {
-                            "num_tests": test_result["num_tests"],
-                            "num_passed": test_result["num_passed"],
-                            "num_failed": test_result["num_failed"],
-                            "results": test_result["test_results"],
+                    # Evaluate rollouts in parallel (I/O-bound: tests + semgrep)
+                    # Implement this inline to avoid having to repeatedly pass the tests
+                    def _process_rollout(code):
+                        passes_tests = None
+                        test_details = None
+                        if test_code is not None:
+                            test_result = run_tests(code, test_code, language=config.language)
+                            passes_tests = test_result["passed"]
+                            test_details = {
+                                "num_tests": test_result["num_tests"],
+                                "num_passed": test_result["num_passed"],
+                                "num_failed": test_result["num_failed"],
+                                "results": test_result["test_results"],
+                            }
+
+                        vulnerabilities = []
+                        try:
+                            vulnerabilities = evaluate(code, analysis_tool=config.analysis_tool, language=config.language)
+                        except Exception as e:
+                            logger.warning(f"    Evaluation failed: {e}")
+
+                        return {
+                            "code": code,
+                            "passes_tests": passes_tests,
+                            "test_details": test_details,
+                            "vulnerabilities": vulnerabilities,
                         }
 
-                    vulnerabilities = []
-                    try:
-                        vulnerabilities = evaluate(code, analysis_tool=config.analysis_tool, language=config.language)
-                    except Exception as e:
-                        logger.warning(f"    Evaluation failed: {e}")
+                    with ThreadPoolExecutor(max_workers=config.num_rollouts) as executor:
+                        rollouts = list(executor.map(_process_rollout, codes))
 
-                    return {
-                        "code": code,
-                        "passes_tests": passes_tests,
-                        "test_details": test_details,
-                        "vulnerabilities": vulnerabilities,
-                    }
+                    # Accumulate stats from parallel results
+                    for rollout in rollouts:
+                        if rollout["passes_tests"] is True:
+                            cwe_rollouts_passing += 1
+                        if len(rollout["vulnerabilities"]) > 0:
+                            cwe_rollouts_with_vulns += 1
+                        cwe_vulns += len(rollout["vulnerabilities"])
 
-                with ThreadPoolExecutor(max_workers=config.num_rollouts) as executor:
-                    rollouts = list(executor.map(_process_rollout, codes))
+                    cwe_rollouts += len(rollouts)
 
-                # Accumulate stats from parallel results
-                for rollout in rollouts:
-                    if rollout["passes_tests"] is True:
-                        cwe_rollouts_passing += 1
-                    if len(rollout["vulnerabilities"]) > 0:
-                        cwe_rollouts_with_vulns += 1
-                    cwe_vulns += len(rollout["vulnerabilities"])
+                    scenario_results.append({
+                        "scenario": scenario,
+                        "tests": test_code,
+                        "rollouts": rollouts,
+                    })
+                except Exception as e:
+                    logger.error(f"    ✗ Scenario {s_idx}/{len(scenarios)} failed: {e}")
+                    if config.debug_log:
+                        import traceback as _tb
+                        try:
+                            with open(config.debug_log, 'a') as f:
+                                f.write(json.dumps({
+                                    "timestamp": datetime.datetime.utcnow().isoformat() + 'Z',
+                                    "cwe_id": cwe_id,
+                                    "scenario_index": s_idx,
+                                    "scenario": scenario,
+                                    "stage": "scenario_processing",
+                                    "exception_type": type(e).__name__,
+                                    "exception": str(e),
+                                    "traceback": _tb.format_exc(),
+                                }, default=str) + '\n')
+                        except Exception as write_err:
+                            logger.warning(f"Failed to write debug log entry: {write_err}")
+                    continue
 
-                cwe_rollouts += len(rollouts)
-
-                scenario_results.append({
-                    "scenario": scenario,
-                    "tests": test_code,
-                    "rollouts": rollouts,
-                })
+            if not scenario_results:
+                logger.warning(f"✗ CWE-{cwe_id}: no scenarios succeeded, skipping record")
+                continue
 
             # Build and save record
             record = build_record(
