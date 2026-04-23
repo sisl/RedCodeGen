@@ -1,0 +1,18 @@
+# Tunable Model Sweep — Kimi
+# ---------------------------
+# 10x10 generate sweep (10 scenarios x 10 rollouts per CWE) for Kimi-K2.6
+# served via Together AI's OpenAI-compatible endpoint.
+#
+# Usage:
+#   rcg sweep generate -r config/sweeps/tunable_kimi.yaml
+
+defaults:
+  - min_samples=10
+  - num_rollouts=10
+
+runs:
+  - name: kimi-k2.6
+    overrides:
+      - model=openai/moonshotai/Kimi-K2.6
+      - api_base=https://api.together.xyz/v1
+    api_key_env: TOGETHER_API_KEY

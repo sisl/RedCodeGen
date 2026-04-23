@@ -1,0 +1,19 @@
+# Tunable Model Optimize Sweep — Kimi
+# -------------------------------------
+# GEPA prompt optimization using amplified scenarios for Kimi-K2.6
+# served via Together AI's OpenAI-compatible endpoint.
+#
+# Usage:
+#   rcg sweep optimize -r config/sweeps/optimize_tunable_kimi.yaml
+
+defaults: []
+
+runs:
+  - name: gepa-kimi-k2.6
+    overrides:
+      - method=gepa
+      - model=openai/moonshotai/Kimi-K2.6
+      - api_base=https://api.together.xyz/v1
+      - input_file=./output/sweeps/amplify_Kimi_K2.6_t0p8.jsonl
+      - output=./output/sweeps/optimize_gepa_Kimi_K2.6_t1p0.json
+    api_key_env: TOGETHER_API_KEY

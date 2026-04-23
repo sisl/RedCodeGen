@@ -1,0 +1,22 @@
+# Tunable Model Sweep — Kimi, Prompt-Optimized
+# -----------------------------------------------
+# Same 10x10 generate sweep as tunable_kimi.yaml, but Kimi uses a hardened
+# coder prompt produced by GEPA optimization.
+#
+# Usage:
+#   rcg sweep generate -r config/sweeps/tunable_kimi_prompt_optimized.yaml
+
+defaults:
+  - min_samples=10
+  - num_rollouts=10
+
+runs:
+  # ===== GEPA-optimized prompts =====
+
+  - name: gepa-kimi-k2.6
+    overrides:
+      - model=openai/moonshotai/Kimi-K2.6
+      - api_base=https://api.together.xyz/v1
+      - coder_prompt=./output/sweeps/optimize_gepa_Kimi_K2.6_t1p0.json
+      - output_dir=./output/sweeps/gepa/
+    api_key_env: TOGETHER_API_KEY
