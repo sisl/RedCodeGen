@@ -12,7 +12,7 @@ runs:
   - name: gepa-kimi-k2.6
     overrides:
       - method=gepa
-      - model=openai/moonshotai/Kimi-K2.6
+      - model=moonshotai/Kimi-K2.6
       - api_base=https://api.together.xyz/v1
       - input_file=./output/sweeps/amplify_Kimi_K2.6_t0p8.jsonl
       - output=./output/sweeps/optimize_gepa_Kimi_K2.6_t1p0.json

@@ -13,6 +13,6 @@ defaults:
 runs:
   - name: kimi-k2.6
     overrides:
-      - model=openai/moonshotai/Kimi-K2.6
+      - model=moonshotai/Kimi-K2.6
       - api_base=https://api.together.xyz/v1
     api_key_env: TOGETHER_API_KEY
