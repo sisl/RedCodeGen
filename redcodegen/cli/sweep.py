@@ -304,8 +304,10 @@ def sweep_amplify(
     logger.info(f"Starting amplification sweep ({n_workers} worker(s))...")
 
     def _post_build(cfg, run_name):
-        prefix = "amplify_summarize" if cfg.summarize else "amplify"
-        updates = {"output": _auto_output_path(output_dir, prefix, cfg.model, cfg.temperature)}
+        # Route summarize (rephrase-baseline) runs to a separate subdir so they
+        # don't collide with mcmc-amplify outputs.
+        out_dir = str(Path(output_dir) / "summarize") if cfg.summarize else output_dir
+        updates = {"output": _auto_output_path(out_dir, "amplify", cfg.model, cfg.temperature)}
         if input_file:
             updates["input_file"] = input_file
         cfg = cfg.model_copy(update=updates)
