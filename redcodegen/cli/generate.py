@@ -142,10 +142,17 @@ def generate_scenarios(config: GenerateConfig):
     from redcodegen.analyzers.evaluate import evaluate
 
     # Load hardened coder prompt if provided
+    if config.coder_prompt and config.secure:
+        logger.error("--secure and --coder-prompt are mutually exclusive (the optimized prompt targets the standard coder, not the secure one)")
+        raise typer.Exit(code=1)
     if config.coder_prompt:
         from redcodegen.generator.prompting import load_coder
         load_coder(config.coder_prompt)
         logger.info(f"Loaded hardened coder prompt from {config.coder_prompt}")
+    if config.secure:
+        from redcodegen.generator.prompting import set_secure
+        set_secure(True)
+        logger.info("Secure-coder mode enabled: using security-hardened code-generation signature")
 
     # Construct output path
     output_dir = Path(config.output_dir)
@@ -159,7 +166,8 @@ def generate_scenarios(config: GenerateConfig):
     else:
         model_str = config.model.split('/')[-1].replace('-', '_')
     re_suffix = f"_re{config.reasoning_effort}" if config.reasoning_effort else ""
-    output_filename = f"generated_scenarios_{model_str}_{temperature_str}_n{config.min_samples}_k{config.num_rollouts}{re_suffix}.jsonl"
+    secure_suffix = "_secure" if config.secure else ""
+    output_filename = f"generated_scenarios_{model_str}_{temperature_str}_n{config.min_samples}_k{config.num_rollouts}{re_suffix}{secure_suffix}.jsonl"
     output_path = output_dir / output_filename
 
     logger.info(f"Output will be saved to: {output_path.absolute()}")
@@ -424,6 +432,7 @@ def generate(
     tk_checkpoint: str | None = typer.Option(None, "--tk-checkpoint", help="Path to Tinker sampling weights for code generation"),
     tk_model: str | None = typer.Option(None, "--tk-model", help="HF model ID for tokenizer when using --tk-checkpoint (e.g. Qwen/Qwen3-4B-Instruct-2507)"),
     coder_prompt: str | None = typer.Option(None, "--coder-prompt", "-c", help="Path to a JSON file with a hardened coder prompt to load"),
+    secure: bool = typer.Option(False, "--secure", "-s", help="Use the security-hardened coder signature (instructs the model to write secure code; mutually exclusive with --coder-prompt)"),
     debug_log: str | None = typer.Option(None, "--debug", help="Path to a debug log file; failing LM prompts and CWE errors will be written here as JSONL"),
 ):
     """Generate scenarios that induce vulnerabilities in LLM-generated code.
@@ -457,6 +466,7 @@ def generate(
         tk_checkpoint=tk_checkpoint,
         tk_model=tk_model,
         coder_prompt=coder_prompt,
+        secure=secure,
         debug_log=debug_log,
     )
 

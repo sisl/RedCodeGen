@@ -26,6 +26,7 @@ class GenerateConfig(BaseConfig):
     tk_checkpoint: str | None = None
     tk_model: str | None = None
     coder_prompt: str | None = None
+    secure: bool = False
     debug_log: str | None = None
 
     @field_validator("reasoning_effort", mode="before")

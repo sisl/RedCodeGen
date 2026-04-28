@@ -1,0 +1,41 @@
+# Tunable Model Sweep — Secure Coder
+# -----------------------------------
+# Same 10x10 generate sweep as tunable.yaml, but each model uses the
+# security-hardened coder signature (--secure) which instructs the model to
+# write code that survives CWE static analysis. OpenAI models only.
+#
+# Usage:
+#   rcg sweep generate -r config/sweeps/tunable_secure.yaml
+
+defaults:
+  - min_samples=10
+  - num_rollouts=10
+
+runs:
+  - name: secure-gpt-5.4-nano
+    overrides:
+      - model=openai/gpt-5.4-nano
+      - +secure=true
+      - output_dir=./output/sweeps/secure/
+    api_key_env: OPENAI_API_KEY
+
+  - name: secure-gpt-5.4-mini
+    overrides:
+      - model=openai/gpt-5.4-mini
+      - +secure=true
+      - output_dir=./output/sweeps/secure/
+    api_key_env: OPENAI_API_KEY
+
+  - name: secure-gpt-5.4
+    overrides:
+      - model=openai/gpt-5.4
+      - +secure=true
+      - output_dir=./output/sweeps/secure/
+    api_key_env: OPENAI_API_KEY
+
+  - name: secure-gpt-5.3-codex
+    overrides:
+      - model=openai/gpt-5.3-codex
+      - +secure=true
+      - output_dir=./output/sweeps/secure/
+    api_key_env: OPENAI_API_KEY

@@ -156,3 +156,5 @@ def mcmc(tau: str, kernel: Kernel, turns=100, find_failure=True, symmetric=False
                  accepted, turns, len(samples))
     return samples
 
+
+
