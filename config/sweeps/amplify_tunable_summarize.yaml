@@ -1,0 +1,38 @@
+# Tunable Model Amplify Sweep — Rephrase Baseline
+# ------------------------------------------------
+# Non-MCMC baseline for amplify: rephrase each seed k times and slice by
+# static-analysis outcome (no Metropolis–Hastings). OpenAI models only.
+#
+# Usage:
+#   rcg sweep amplify -r config/sweeps/amplify_tunable_summarize.yaml
+
+defaults: []
+
+runs:
+  - name: gpt-5.4-nano
+    overrides:
+      - model=openai/gpt-5.4-nano
+      - input_file=./output/sweeps/generated_scenarios_gpt_5.4_nano_t1p0_n10_k10.jsonl
+      - +summarize=true
+    api_key_env: OPENAI_API_KEY
+
+  - name: gpt-5.4-mini
+    overrides:
+      - model=openai/gpt-5.4-mini
+      - input_file=./output/sweeps/generated_scenarios_gpt_5.4_mini_t1p0_n10_k10.jsonl
+      - +summarize=true
+    api_key_env: OPENAI_API_KEY
+
+  - name: gpt-5.4
+    overrides:
+      - model=openai/gpt-5.4
+      - input_file=./output/sweeps/generated_scenarios_gpt_5.4_t1p0_n10_k10.jsonl
+      - +summarize=true
+    api_key_env: OPENAI_API_KEY
+
+  - name: gpt-5.3-codex
+    overrides:
+      - model=openai/gpt-5.3-codex
+      - input_file=./output/sweeps/generated_scenarios_gpt_5.3_codex_t1p0_n10_k10.jsonl
+      - +summarize=true
+    api_key_env: OPENAI_API_KEY

@@ -144,4 +144,5 @@ class AmplifyConfig(BaseConfig):
     analysis_tool: str = "semgrep"
     num_rollouts: int = 1
     no_successes: bool = False
+    summarize: bool = False
     language: str = "python"

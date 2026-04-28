@@ -83,6 +83,40 @@ def quantify(
     return beta, rollouts
 
 
+def rephrase_baseline(
+    tau: str,
+    kernel: Kernel,
+    k: int = 100,
+    threshold: float = 0.015,
+    language: str = DEFAULT_LANGUAGE,
+    analysis_tool: AnalysisTool = AnalysisTool.SEMGREP,
+) -> list[Tuple[str, FailureBeta, list[dict]]]:
+    """Resample the *original* prompt k times via the kernel — non-MCMC baseline.
+
+    Unlike mcmc(), every proposal is drawn from the seed prompt tau (not the
+    previously-accepted sample) and every proposal is kept (no Metropolis–Hastings
+    accept/reject). Output shape mirrors mcmc(): a list of (prompt, FailureBeta,
+    rollouts) tuples, with the seed sample at index 0 followed by k rephrased
+    draws. Whether a draw is "secure" vs "insecure" is recoverable from each
+    rollout's vulnerabilities list.
+    """
+
+    logger.debug("rephrase_baseline: k={}, threshold={}, seed={!r}", k, threshold, tau[:100])
+
+    seed_beta, seed_rollouts = quantify(tau, threshold, language=language, analysis_tool=analysis_tool)
+    samples: list[Tuple[str, FailureBeta, list[dict]]] = [(tau, seed_beta, seed_rollouts)]
+
+    for i in range(k):
+        tau_prime = kernel.sample(tau, state=i + 1)
+        logger.debug("rephrase_baseline: draw {}/{} — proposal={!r}", i + 1, k, tau_prime[:100])
+        beta, rollouts = quantify(tau_prime, threshold, language=language, analysis_tool=analysis_tool)
+        samples.append((tau_prime, beta, rollouts))
+        logger.debug("rephrase_baseline: draw {}/{} — beta={}, {} rollouts", i + 1, k, beta, len(rollouts))
+
+    logger.debug("rephrase_baseline: finished — {} samples (1 seed + {} draws)", len(samples), k)
+    return samples
+
+
 def mcmc(tau: str, kernel: Kernel, turns=100, find_failure=True, symmetric=False, threshold=0.015, language=DEFAULT_LANGUAGE, analysis_tool: AnalysisTool = AnalysisTool.SEMGREP) -> list[Tuple[str, FailureBeta, list[dict]]]:
     """Run MCMC chain starting from tau.
 
@@ -155,6 +189,4 @@ def mcmc(tau: str, kernel: Kernel, turns=100, find_failure=True, symmetric=False
     logger.debug("mcmc: finished — {}/{} accepted, {} total samples (including seed)",
                  accepted, turns, len(samples))
     return samples
-
-
 

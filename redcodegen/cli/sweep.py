@@ -304,7 +304,8 @@ def sweep_amplify(
     logger.info(f"Starting amplification sweep ({n_workers} worker(s))...")
 
     def _post_build(cfg, run_name):
-        updates = {"output": _auto_output_path(output_dir, "amplify", cfg.model, cfg.temperature)}
+        prefix = "amplify_summarize" if cfg.summarize else "amplify"
+        updates = {"output": _auto_output_path(output_dir, prefix, cfg.model, cfg.temperature)}
         if input_file:
             updates["input_file"] = input_file
         cfg = cfg.model_copy(update=updates)

@@ -98,11 +98,12 @@ def process_scenario_worker(
     test_api_base: str | None = None,
     analysis_tool: str = "semgrep",
     no_successes: bool = False,
+    summarize: bool = False,
 ):
     """Worker function that pulls tasks from queue and processes them."""
     # Import here to avoid issues with multiprocessing
     from redcodegen.kernels import LMRephrasingKernel
-    from redcodegen.uncertainty import mcmc
+    from redcodegen.uncertainty import mcmc, rephrase_baseline
     from redcodegen.constants import create_lm
     from redcodegen.analyzers.common import AnalysisTool as AT
     from redcodegen.test_gen import generate_test_with_model, run_tests
@@ -143,35 +144,53 @@ def process_scenario_worker(
         worker_logger.debug(f"Processing scenario for {rule}: {seed[:50]}...")
 
         try:
-            # Run MCMC for successes (find non-vulnerable prompts)
-            if no_successes:
-                successes = []
-                worker_logger.debug("  Skipping success MCMC chain (--no-successes)")
+            if summarize:
+                # Baseline: rephrase the seed k times (no MCMC), then split by analyzer outcome
+                worker_logger.debug("  Running rephrase baseline (--summarize)...")
+                draws = rephrase_baseline(
+                    seed,
+                    LMRephrasingKernel(),
+                    k=mcmc_steps,
+                    threshold=variance_threshold,
+                    language=language,
+                    analysis_tool=AT(analysis_tool),
+                )[1:]  # crop seed
+                failures_mcmc = [s for s in draws if any(len(r["vulnerabilities"]) > 0 for r in s[2])]
+                if no_successes:
+                    successes = []
+                    worker_logger.debug("  Skipping success bucket (--no-successes)")
+                else:
+                    successes = [s for s in draws if not any(len(r["vulnerabilities"]) > 0 for r in s[2])]
             else:
-                worker_logger.debug("  Running MCMC for successes...")
-                successes = mcmc(
+                # Run MCMC for successes (find non-vulnerable prompts)
+                if no_successes:
+                    successes = []
+                    worker_logger.debug("  Skipping success MCMC chain (--no-successes)")
+                else:
+                    worker_logger.debug("  Running MCMC for successes...")
+                    successes = mcmc(
+                        seed,
+                        LMRephrasingKernel(),
+                        turns=mcmc_steps,
+                        find_failure=False,
+                        threshold=variance_threshold,
+                        symmetric=True,
+                        language=language,
+                        analysis_tool=AT(analysis_tool),
+                    )[1:]  # crop seed
+
+                # Run MCMC for failures (find vulnerable prompts)
+                worker_logger.debug("  Running MCMC for failures...")
+                failures_mcmc = mcmc(
                     seed,
                     LMRephrasingKernel(),
                     turns=mcmc_steps,
-                    find_failure=False,
+                    find_failure=True,
                     threshold=variance_threshold,
                     symmetric=True,
                     language=language,
                     analysis_tool=AT(analysis_tool),
                 )[1:]  # crop seed
-
-            # Run MCMC for failures (find vulnerable prompts)
-            worker_logger.debug("  Running MCMC for failures...")
-            failures_mcmc = mcmc(
-                seed,
-                LMRephrasingKernel(),
-                turns=mcmc_steps,
-                find_failure=True,
-                threshold=variance_threshold,
-                symmetric=True,
-                language=language,
-                analysis_tool=AT(analysis_tool),
-            )[1:]  # crop seed
 
             # Generate test from seed using test model
             test_code = None
@@ -215,6 +234,7 @@ def process_scenario_worker(
                     "turns": mcmc_steps,
                     "beta_variance_threshold": variance_threshold,
                     "analysis_tool": analysis_tool,
+                    "method": "rephrase_baseline" if summarize else "mcmc",
                 },
             )
 
@@ -269,6 +289,7 @@ def run_amplification(config):
     mcmc_steps = config.mcmc_steps
     variance_threshold = config.variance_threshold
     no_successes = config.no_successes
+    summarize = config.summarize
     filter_rule = config.filter_rule
     ignore_rule = config.ignore_rule
     verbose = config.verbose
@@ -397,6 +418,7 @@ def run_amplification(config):
                 test_api_base,
                 analysis_tool.value,
                 no_successes,
+                summarize,
             )
 
             # Use apply_async to start workers that will process tasks from queue
@@ -439,6 +461,7 @@ def amplify(
     analysis_tool: AnalysisTool = typer.Option(AnalysisTool.SEMGREP.value, "--analysis-tool", "-a", help="Static analysis tool for evaluation"),
     num_rollouts: int = typer.Option(1, "--num-rollouts", "-k", help="Number of code rollouts per MCMC chain prompt"),
     no_successes: bool = typer.Option(False, "--no-successes", help="Skip success MCMC chain (only run failure chain)"),
+    summarize: bool = typer.Option(False, "--summarize", help="Baseline mode: instead of MCMC, rephrase the seed k times and slice by static-analysis outcome"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose output"),
 ):
     """Amplify vulnerable scenarios using MCMC to explore failure boundaries.
@@ -470,6 +493,7 @@ def amplify(
         analysis_tool=analysis_tool.value,
         num_rollouts=num_rollouts,
         no_successes=no_successes,
+        summarize=summarize,
         language=language,
         verbose=verbose,
     )
