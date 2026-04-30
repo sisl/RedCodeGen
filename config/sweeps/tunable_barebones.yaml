@@ -1,0 +1,42 @@
+# Tunable Model Sweep — Barebones Coder
+# --------------------------------------
+# Same 10x10 generate sweep as tunable.yaml, but each model uses the minimal
+# barebones coder signature (--barebones) — no production-quality preamble,
+# no security framing — as a control against the secure/standard variants.
+# OpenAI models only.
+#
+# Usage:
+#   rcg sweep generate -r config/sweeps/tunable_barebones.yaml
+
+defaults:
+  - min_samples=10
+  - num_rollouts=10
+
+runs:
+  - name: barebones-gpt-5.4-nano
+    overrides:
+      - model=openai/gpt-5.4-nano
+      - +barebones=true
+      - output_dir=./output/sweeps/barebones/
+    api_key_env: OPENAI_API_KEY
+
+  - name: barebones-gpt-5.4-mini
+    overrides:
+      - model=openai/gpt-5.4-mini
+      - +barebones=true
+      - output_dir=./output/sweeps/barebones/
+    api_key_env: OPENAI_API_KEY
+
+  - name: barebones-gpt-5.4
+    overrides:
+      - model=openai/gpt-5.4
+      - +barebones=true
+      - output_dir=./output/sweeps/barebones/
+    api_key_env: OPENAI_API_KEY
+
+  - name: barebones-gpt-5.3-codex
+    overrides:
+      - model=openai/gpt-5.3-codex
+      - +barebones=true
+      - output_dir=./output/sweeps/barebones/
+    api_key_env: OPENAI_API_KEY
