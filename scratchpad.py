@@ -42,10 +42,10 @@ def template(prompt, label):
     ]
 
 
-@dataset("rcg_contrastive")
-class RCGContrastiveHardeningDataset(ContrastiveChatTemplateDataset):
+@dataset("sf_contrastive")
+class SFContrastiveHardeningDataset(ContrastiveChatTemplateDataset):
     def __init__(self, split: str = "noop", config: str = "") -> None:
-        """Load the RedCodeGen repo generated contrastive learning dataset."""
+        """Load the SecureForge repo generated contrastive learning dataset."""
         # config should be the jsonl that comes from cli/rollout.py
 
         config_path = Path(config).resolve(strict=True)
@@ -71,10 +71,10 @@ class RCGContrastiveHardeningDataset(ContrastiveChatTemplateDataset):
 
         return (y_pos, y_neg)
 
-@dataset("rcg_sft")
-class RCGSFTHardeningDataset(ChatTemplateDataset):
+@dataset("sf_sft")
+class SFSFTHardeningDataset(ChatTemplateDataset):
     def __init__(self, split: str = "noop", config: str = "") -> None:
-        """Load the RedCodeGen repo generated contrastive learning dataset."""
+        """Load the SecureForge repo generated contrastive learning dataset."""
         # config should be the jsonl that comes from cli/generate.py
 
         config_path = Path(config).resolve(strict=True)
@@ -108,14 +108,14 @@ class RCGSFTHardeningDataset(ChatTemplateDataset):
         a,b = self.prompts[idx]
         return template(a,b)
 
-@job("rcg_hardening_contrastive")
-class RCGHardeningContrastive(BackbonedContrastiveTrainer):
+@job("sf_hardening_contrastive")
+class SFHardeningContrastive(BackbonedContrastiveTrainer):
     @classmethod
     def schedule(cls):
         return None
 
-@job("rcg_hardening_sft")
-class RCGHardening(BackbonedTrainer):
+@job("sf_hardening_sft")
+class SFHardening(BackbonedTrainer):
     @classmethod
     def schedule(cls):
         return None
@@ -143,7 +143,7 @@ OUT_FOLDER = "./output/models/"
 OUT_MODEL = "./output/Qwen2.5-0.5B"
 
 RUN_NAME = "name"
-PROJECT = "redcodegen"
+PROJECT = "secureforge"
 GROUP = "e0"
 BATCH_SIZE = 16
 PER_DEVICE_BATCH_SIZE = 2
@@ -174,16 +174,16 @@ if TRAIN_TYPE == "contrastive":
     with quick("data/tokenize_contrastive_dataset", "tokenize_job", OUT_FOLDER) as q:
         q.config.tokenizer.backend = "huggingface"
         q.config.tokenizer.name = IMPLEMENTATION
-        q.config.data.dataset = "rcg_contrastive"
+        q.config.data.dataset = "sf_contrastive"
         q.config.data.config = CONFIG
         q.config.data.suffix = Path(CONFIG).stem + "_" + IMPLEMENTATION.replace("/", "_")
         q()
 
-    with quick("rcg_hardening_contrastive", RUN_NAME, out_folder, project=PROJECT, group=GROUP) as q:
+    with quick("sf_hardening_contrastive", RUN_NAME, out_folder, project=PROJECT, group=GROUP) as q:
         q.config.architecture.backbone.implementation = BACKBONE
         q.config.architecture.backbone.weights = IMPLEMENTATION
         q.config.training.dataset = [{
-            "name": "rcg_contrastive",
+            "name": "sf_contrastive",
             "rate": 1.0,
             "style": "CONTRASTIVE",
             "suffix": Path(CONFIG).stem + "_" + IMPLEMENTATION.replace("/", "_"),
@@ -201,16 +201,16 @@ else:
     with quick("data/tokenize_blockwise_dataset", "tokenize_job", OUT_FOLDER) as q:
         q.config.tokenizer.backend = "huggingface"
         q.config.tokenizer.name = IMPLEMENTATION
-        q.config.data.dataset = "rcg_sft"
+        q.config.data.dataset = "sf_sft"
         q.config.data.config = CONFIG
         q.config.data.suffix = Path(CONFIG).stem + "_" + IMPLEMENTATION.replace("/", "_")
         q()
 
-    with quick("rcg_hardening_sft", RUN_NAME, OUT_FOLDER, project=PROJECT, group=GROUP) as q:
+    with quick("sf_hardening_sft", RUN_NAME, OUT_FOLDER, project=PROJECT, group=GROUP) as q:
         q.config.architecture.backbone.implementation = BACKBONE
         q.config.architecture.backbone.weights = IMPLEMENTATION
         q.config.training.dataset = [{
-            "name": "rcg_sft",
+            "name": "sf_sft",
             "rate": 1.0,
             "style": "PADDED",
             "suffix": Path(CONFIG).stem + "_" + IMPLEMENTATION.replace("/", "_"),

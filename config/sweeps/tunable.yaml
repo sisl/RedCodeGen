@@ -12,7 +12,7 @@
 #     - CodeLlama-7b-Instruct-hf
 #
 # Usage:
-#   rcg sweep generate -r config/sweeps/tunable.yaml
+#   sf sweep generate -r config/sweeps/tunable.yaml
 
 defaults:
   - min_samples=10

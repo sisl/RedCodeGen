@@ -3,7 +3,7 @@
 # GEPA prompt optimization using amplified scenarios for Claude models.
 #
 # Usage:
-#   rcg sweep optimize -r config/sweeps/optimize_tunable_claude.yaml
+#   sf sweep optimize -r config/sweeps/optimize_tunable_claude.yaml
 
 defaults: []
 

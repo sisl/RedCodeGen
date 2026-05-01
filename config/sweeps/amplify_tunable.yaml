@@ -4,7 +4,7 @@
 # Each run pairs a model with its corresponding generate output.
 #
 # Usage:
-#   rcg sweep amplify -r config/sweeps/amplify_tunable.yaml
+#   sf sweep amplify -r config/sweeps/amplify_tunable.yaml
 
 defaults: []
 

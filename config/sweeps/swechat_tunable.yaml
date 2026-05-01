@@ -3,7 +3,7 @@
 # 10-rollout sweep across GPT family on SWE-chat tasks.
 #
 # Usage:
-#   rcg sweep swechat -r config/sweeps/swechat_tunable.yaml -i data/swe-chat-for-redcodegen-tasks_2026-04-16_02-23-29.json
+#   sf sweep swechat -r config/sweeps/swechat_tunable.yaml -i data/swe-chat-for-secureforge-tasks_2026-04-16_02-23-29.json
 
 defaults:
   - num_rollouts=10

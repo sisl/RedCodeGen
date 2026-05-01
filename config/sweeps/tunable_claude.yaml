@@ -4,7 +4,7 @@
 # Sonnet 4.6 and Opus 4.6.
 #
 # Usage:
-#   rcg sweep generate -r config/sweeps/tunable_claude.yaml
+#   sf sweep generate -r config/sweeps/tunable_claude.yaml
 
 defaults:
   - min_samples=10

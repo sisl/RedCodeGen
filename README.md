@@ -1,12 +1,12 @@
 <h1 align="center">
-    <em>RedCodeGen</em>
+    <em>SecureForge</em>
 </h1>
 
 <p align="center">
-<a href="https://pypi.org/project/redcodegen/" target="_blank">
-    <img src="https://img.shields.io/pypi/v/redcodegen.svg", alt="PyPi Version">
+<a href="https://pypi.org/project/secureforge/" target="_blank">
+    <img src="https://img.shields.io/pypi/v/secureforge.svg", alt="PyPi Version">
 </a>
-<a href="https://github.com/sisl/redcodegen/blob/main/LICENSE" target="_blank">
+<a href="https://github.com/sisl/secureforge/blob/main/LICENSE" target="_blank">
     <img src="https://img.shields.io/badge/License-MIT-green.svg", alt="License">
 </a>
 </p>
@@ -32,12 +32,12 @@ Developed by the Stanford Intelligent Systems Laboratory (SISL) as a part of [as
 - macOS Users: `brew install codeql`
 - Windows/Linux Users: follow the instructions [here](https://docs.github.com/en/code-security/codeql-cli/getting-started-with-the-codeql-cli/setting-up-the-codeql-cli)
 
-### RedCodeGen
+### SecureForge
 
-RedCodeGen is available via PyPI. Install it with pip:
+SecureForge is available via PyPI. Install it with pip:
 
 ```bash
-pip install redcodegen
+pip install secureforge
 ```
 
 You would also want to create a .env file with your API key in your working directory:
@@ -55,7 +55,7 @@ The most basic usage involves rolling out a language model to generate code samp
 Suppose you want to generate 5 scenarios each with 10 rollouts to exercise CWE-89 (SQL Injection) and CWE-79 (Cross-Site Scripting):
 
 ```bash
-rcg generate -c CWE-89 -c CWE-79 -n 5 -k 10
+sf generate -c CWE-89 -c CWE-79 -n 5 -k 10
 ```
 
 Output is saved to `./output/` by default with an auto-generated filename based on model and settings. Each CWE will live on a line. Let's take a peak!
@@ -96,14 +96,14 @@ Importantly, running the above command multiple times (to the same output direct
 ### Usage Examples
 
 ```bash
-rcg generate -c CWE-89 -c CWE-79               # manually specify CWEs
-rcg generate -n 5                                # specify number of scenarios
-rcg generate -k 20                               # specify number of rollouts per scenario
-rcg generate --use-top-25                        # run CWE top 25
-rcg generate --use-top-25 --model openai/gpt-4o  # switch code model
-rcg generate -g meta-llama/Llama-3-8B            # use local HF model for code generation
-rcg generate --analysis-tool codeql              # use CodeQL instead of Semgrep
-rcg generate --reasoning-effort high             # set reasoning effort for code model
+sf generate -c CWE-89 -c CWE-79               # manually specify CWEs
+sf generate -n 5                                # specify number of scenarios
+sf generate -k 20                               # specify number of rollouts per scenario
+sf generate --use-top-25                        # run CWE top 25
+sf generate --use-top-25 --model openai/gpt-4o  # switch code model
+sf generate -g meta-llama/Llama-3-8B            # use local HF model for code generation
+sf generate --analysis-tool codeql              # use CodeQL instead of Semgrep
+sf generate --reasoning-effort high             # set reasoning effort for code model
 ```
 
 ## Sweep Command
@@ -113,13 +113,13 @@ Use `sweep generate` to run the same generation settings across multiple model c
 With the default experiment config (`use_top_25=true`), run:
 
 ```bash
-rcg sweep generate --runs-config config/sweeps/cwe434_smoke_runs.yaml
+sf sweep generate --runs-config config/sweeps/cwe434_smoke_runs.yaml
 ```
 
 For a one-sample smoke test on `CWE-434`, apply CLI overrides on top of that default:
 
 ```bash
-rcg sweep generate \
+sf sweep generate \
   'cwes=[434]' \
   'use_top_25=false' \
   'min_samples=1' \
@@ -150,17 +150,17 @@ runs:
 Also, you can run
 
 ```bash
-rcg --help
+sf --help
 ```
 
 to see all available options.
 
 ### Method
-RedCodeGen works in three main steps:
+SecureForge works in three main steps:
 
-1. **Prompt Generation**: for each specified CWE, RedCodeGen generates a realistic coding task prompt that is likely to exercise the vulnerability. We do this by first looking up the CWE description from the MITRE CWE database, then prompting your specified language model to generate a coding task prompt based on that description. These descriptions are few-shot trained via existing human-written prompts from [Pearce, 2021](https://arxiv.org/abs/2108.09293).
-2. **Code Generation**: RedCodeGen then rolls out the specified language model on the generated prompt a few times with a sampling temperature of 0.8 to generate multiple code samples.
-3. **Code Evaluation**: Finally, RedCodeGen evaluates each generated code sample using static analysis to detect whether the intended vulnerability is present in the code.
+1. **Prompt Generation**: for each specified CWE, SecureForge generates a realistic coding task prompt that is likely to exercise the vulnerability. We do this by first looking up the CWE description from the MITRE CWE database, then prompting your specified language model to generate a coding task prompt based on that description. These descriptions are few-shot trained via existing human-written prompts from [Pearce, 2021](https://arxiv.org/abs/2108.09293).
+2. **Code Generation**: SecureForge then rolls out the specified language model on the generated prompt a few times with a sampling temperature of 0.8 to generate multiple code samples.
+3. **Code Evaluation**: Finally, SecureForge evaluates each generated code sample using static analysis to detect whether the intended vulnerability is present in the code.
 
 ## Amplify Command
 
@@ -171,7 +171,7 @@ After generating vulnerable code samples with the `generate` command, you can us
 The most basic usage:
 
 ```bash
-rcg amplify -i results.jsonl -o amplified.jsonl
+sf amplify -i results.jsonl -o amplified.jsonl
 ```
 
 You will get an `amplified.jsonl` file with MCMC chains for each vulnerable scenario. Each line contains the original seed prompt and two MCMC chains: one for successes (safe code) and one for failures (vulnerable code). Let's take a peak!
@@ -214,12 +214,12 @@ Importantly, running the above command multiple times (to the same output file) 
 ### Usage Examples
 
 ```bash
-rcg amplify -i results.jsonl -o amplified.jsonl                     # basic amplification
-rcg amplify -i results.jsonl -o amplified.jsonl --mcmc-steps 32     # more exploration
-rcg amplify -i results.jsonl -o amplified.jsonl -r py/sql-injection # filter to specific rule
-rcg amplify -i results.jsonl -o amplified.jsonl -x py/path-injection # exclude specific rule
-rcg amplify -i results.jsonl -o amplified.jsonl                     # resume partial run
-rcg amplify -i results.jsonl -o amplified.jsonl --model openai/gpt-4o # switch model
+sf amplify -i results.jsonl -o amplified.jsonl                     # basic amplification
+sf amplify -i results.jsonl -o amplified.jsonl --mcmc-steps 32     # more exploration
+sf amplify -i results.jsonl -o amplified.jsonl -r py/sql-injection # filter to specific rule
+sf amplify -i results.jsonl -o amplified.jsonl -x py/path-injection # exclude specific rule
+sf amplify -i results.jsonl -o amplified.jsonl                     # resume partial run
+sf amplify -i results.jsonl -o amplified.jsonl --model openai/gpt-4o # switch model
 ```
 
 ## Rollout Command
@@ -229,16 +229,16 @@ rcg amplify -i results.jsonl -o amplified.jsonl --model openai/gpt-4o # switch m
 After amplifying vulnerable scenarios, you can use `rollout` to produce paired success/failure code generations from the discovered failure prompts. These pairs are useful for contrastive learning or preference optimization.
 
 ```bash
-rcg rollout -i amplified.jsonl -o rollout_pairs.jsonl
+sf rollout -i amplified.jsonl -o rollout_pairs.jsonl
 ```
 
 ### Usage Examples
 
 ```bash
-rcg rollout -i amplified.jsonl -o rollout_pairs.jsonl              # basic rollout
-rcg rollout -i amplified.jsonl -o rollout_pairs.jsonl --k 10       # 10 pairs per prompt
-rcg rollout -i amplified.jsonl -o rollout_pairs.jsonl --max-rollouts 50 # more attempts
-rcg rollout -i amplified.jsonl -o rollout_pairs.jsonl --model openai/gpt-4o # switch model
+sf rollout -i amplified.jsonl -o rollout_pairs.jsonl              # basic rollout
+sf rollout -i amplified.jsonl -o rollout_pairs.jsonl --k 10       # 10 pairs per prompt
+sf rollout -i amplified.jsonl -o rollout_pairs.jsonl --max-rollouts 50 # more attempts
+sf rollout -i amplified.jsonl -o rollout_pairs.jsonl --model openai/gpt-4o # switch model
 ```
 
 ## Propose Command
@@ -250,7 +250,7 @@ After training a proposal model (fine-tuned base model with optional PEFT adapte
 The most basic usage:
 
 ```bash
-rcg propose -o proposals.jsonl -b Qwen/Qwen2.5-0.5B-Instruct -v py/sql-injection
+sf propose -o proposals.jsonl -b Qwen/Qwen2.5-0.5B-Instruct -v py/sql-injection
 ```
 
 You will get a `proposals.jsonl` file with generated prompts and their evaluation results. Each line contains a prompt designed to either produce or avoid a specific vulnerability, along with quantified reliability metrics. Let's take a peak!
@@ -281,13 +281,13 @@ Importantly, running the above command multiple times (to the same output file) 
 ### Usage Examples
 
 ```bash
-rcg propose -o proposals.jsonl -b Qwen/Qwen2.5-0.5B-Instruct -v py/sql-injection # single vulnerability
-rcg propose -o proposals.jsonl -b Qwen/... -p /path/to/peft -v py/xss # with PEFT adapter
-rcg propose -o proposals.jsonl -b Qwen/... -v py/sql-injection -v py/xss # multiple vulnerabilities
-rcg propose -o proposals.jsonl -b Qwen/... -f vulnerabilities.txt # vulnerabilities from file
-rcg propose -o proposals.jsonl -b Qwen/... -v py/sql-injection -n 20 # more samples per type
-rcg propose -o proposals.jsonl -b Qwen/... -v py/xss # resume partial run
-rcg propose -o proposals.jsonl -b Qwen/... -v py/xss --model openai/gpt-4o # switch code generation model
+sf propose -o proposals.jsonl -b Qwen/Qwen2.5-0.5B-Instruct -v py/sql-injection # single vulnerability
+sf propose -o proposals.jsonl -b Qwen/... -p /path/to/peft -v py/xss # with PEFT adapter
+sf propose -o proposals.jsonl -b Qwen/... -v py/sql-injection -v py/xss # multiple vulnerabilities
+sf propose -o proposals.jsonl -b Qwen/... -f vulnerabilities.txt # vulnerabilities from file
+sf propose -o proposals.jsonl -b Qwen/... -v py/sql-injection -n 20 # more samples per type
+sf propose -o proposals.jsonl -b Qwen/... -v py/xss # resume partial run
+sf propose -o proposals.jsonl -b Qwen/... -v py/xss --model openai/gpt-4o # switch code generation model
 ```
 
 ### Method

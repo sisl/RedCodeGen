@@ -4,7 +4,7 @@
 # coder prompt produced by GEPA optimization.
 #
 # Usage:
-#   rcg sweep generate -r config/sweeps/tunable_kimi_prompt_optimized.yaml
+#   sf sweep generate -r config/sweeps/tunable_kimi_prompt_optimized.yaml
 
 defaults:
   - min_samples=10

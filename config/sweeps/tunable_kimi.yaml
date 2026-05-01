@@ -4,7 +4,7 @@
 # served via Together AI's OpenAI-compatible endpoint.
 #
 # Usage:
-#   rcg sweep generate -r config/sweeps/tunable_kimi.yaml
+#   sf sweep generate -r config/sweeps/tunable_kimi.yaml
 
 defaults:
   - min_samples=10

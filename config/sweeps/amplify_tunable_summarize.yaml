@@ -4,7 +4,7 @@
 # static-analysis outcome (no Metropolis–Hastings). OpenAI models only.
 #
 # Usage:
-#   rcg sweep amplify -r config/sweeps/amplify_tunable_summarize.yaml
+#   sf sweep amplify -r config/sweeps/amplify_tunable_summarize.yaml
 
 defaults: []
 

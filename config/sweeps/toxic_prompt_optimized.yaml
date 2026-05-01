@@ -3,7 +3,7 @@
 # Generate sweep using GEPA-hardened prompts from toxic-amplified scenarios.
 #
 # Usage:
-#   rcg sweep generate -r config/sweeps/toxic_prompt_optimized.yaml
+#   sf sweep generate -r config/sweeps/toxic_prompt_optimized.yaml
 
 defaults:
   - min_samples=10
