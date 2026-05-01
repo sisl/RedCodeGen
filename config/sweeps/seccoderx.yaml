@@ -1,0 +1,40 @@
+# SecCoderX Aligned — Prompt Variant Sweep
+# ------------------------------------------
+# Single open-weight model (Qwen2.5-Coder-7B aligned via SecCoderX) served via
+# vLLM, run across all three coder signatures (standard / secure / barebones)
+# in one sweep. Each variant lands in its own subdir matching the convention
+# used by tunable.yaml / tunable_secure.yaml / tunable_barebones.yaml.
+#
+# NOTE: each run executes in its own process (ProcessPoolExecutor), so the
+# module-level _SECURE / _BAREBONES toggles in prompting.py do not leak
+# across variants. Run with default --workers (do NOT pass --workers 1).
+#
+# Usage:
+#   rcg sweep generate -r config/sweeps/seccoderx.yaml
+
+defaults:
+  - min_samples=10
+  - num_rollouts=10
+
+runs:
+  - name: seccoderx-qwen2.5-coder-7b-aligned
+    overrides:
+      - model=openai/SecCoderX/Qwen2.5_Coder_7B_SecCoderX_aligned
+      - api_base=http://sphinx3.stanford.edu:8000/v1
+      - api_key=token-abc123
+
+  - name: secure-seccoderx-qwen2.5-coder-7b-aligned
+    overrides:
+      - model=openai/SecCoderX/Qwen2.5_Coder_7B_SecCoderX_aligned
+      - api_base=http://sphinx3.stanford.edu:8000/v1
+      - api_key=token-abc123
+      - +secure=true
+      - output_dir=./output/sweeps/secure/
+
+  - name: barebones-seccoderx-qwen2.5-coder-7b-aligned
+    overrides:
+      - model=openai/SecCoderX/Qwen2.5_Coder_7B_SecCoderX_aligned
+      - api_base=http://sphinx3.stanford.edu:8000/v1
+      - api_key=token-abc123
+      - +barebones=true
+      - output_dir=./output/sweeps/barebones/
