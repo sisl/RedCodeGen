@@ -15,6 +15,7 @@
 defaults:
   - min_samples=10
   - num_rollouts=10
+  - test_model=openai/gpt-5.4
 
 runs:
   - name: seccoderx-qwen2.5-coder-7b-aligned
