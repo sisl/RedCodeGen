@@ -1,0 +1,45 @@
+# Initial Prompt Optimize Sweep — MIPROv2 (GPT models, generate inputs)
+# ---------------------------------------------------------------------
+# MIPROv2 prompt optimization using the raw generate sweep outputs
+# (instead of amplify outputs). Limited to the GPT family.
+#
+# Usage:
+#   rcg sweep optimize -r config/sweeps/optimize_prompt_initial_mipro.yaml
+
+defaults: []
+
+runs:
+  # --- MIPROv2 ---
+
+  # GPT models (OpenAI API)
+  - name: mipro-gpt-5.4-nano
+    overrides:
+      - method=mipro
+      - model=openai/gpt-5.4-nano
+      - input_file=./output/sweeps/generated_scenarios_gpt_5.4_nano_t1p0_n10_k10.jsonl
+      - output=./output/sweeps/optimize_prompt_initial_mipro_gpt_5.4_nano_t1p0.json
+    api_key_env: OPENAI_API_KEY
+
+  - name: mipro-gpt-5.4-mini
+    overrides:
+      - method=mipro
+      - model=openai/gpt-5.4-mini
+      - input_file=./output/sweeps/generated_scenarios_gpt_5.4_mini_t1p0_n10_k10.jsonl
+      - output=./output/sweeps/optimize_prompt_initial_mipro_gpt_5.4_mini_t1p0.json
+    api_key_env: OPENAI_API_KEY
+
+  - name: mipro-gpt-5.4
+    overrides:
+      - method=mipro
+      - model=openai/gpt-5.4
+      - input_file=./output/sweeps/generated_scenarios_gpt_5.4_t1p0_n10_k10.jsonl
+      - output=./output/sweeps/optimize_prompt_initial_mipro_gpt_5.4_t1p0.json
+    api_key_env: OPENAI_API_KEY
+
+  - name: mipro-gpt-5.3-codex
+    overrides:
+      - method=mipro
+      - model=openai/gpt-5.3-codex
+      - input_file=./output/sweeps/generated_scenarios_gpt_5.3_codex_t1p0_n10_k10.jsonl
+      - output=./output/sweeps/optimize_prompt_initial_mipro_gpt_5.3_codex_t1p0.json
+    api_key_env: OPENAI_API_KEY
