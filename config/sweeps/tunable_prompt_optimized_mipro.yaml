@@ -1,0 +1,44 @@
+# Tunable Model Sweep — Prompt-Optimized (MIPROv2)
+# -------------------------------------------------
+# Same 10x10 generate sweep as tunable.yaml, but each model uses a hardened
+# coder prompt produced by MIPROv2 optimization. Limited to the GPT family
+# (only models for which optimize_prompt_initial_mipro_*.json exists).
+#
+# Usage:
+#   rcg sweep generate -r config/sweeps/tunable_prompt_optimized_mipro.yaml
+
+defaults:
+  - min_samples=10
+  - num_rollouts=10
+
+runs:
+  # ===== MIPROv2-optimized prompts =====
+
+  # GPT models (OpenAI API)
+  - name: mipro-gpt-5.4-nano
+    overrides:
+      - model=openai/gpt-5.4-nano
+      - coder_prompt=./output/sweeps/optimize_prompt_initial_mipro_gpt_5.4_nano_t1p0.json
+      - output_dir=./output/sweeps/mipro/
+    api_key_env: OPENAI_API_KEY
+
+  - name: mipro-gpt-5.4-mini
+    overrides:
+      - model=openai/gpt-5.4-mini
+      - coder_prompt=./output/sweeps/optimize_prompt_initial_mipro_gpt_5.4_mini_t1p0.json
+      - output_dir=./output/sweeps/mipro/
+    api_key_env: OPENAI_API_KEY
+
+  - name: mipro-gpt-5.4
+    overrides:
+      - model=openai/gpt-5.4
+      - coder_prompt=./output/sweeps/optimize_prompt_initial_mipro_gpt_5.4_t1p0.json
+      - output_dir=./output/sweeps/mipro/
+    api_key_env: OPENAI_API_KEY
+
+  - name: mipro-gpt-5.3-codex
+    overrides:
+      - model=openai/gpt-5.3-codex
+      - coder_prompt=./output/sweeps/optimize_prompt_initial_mipro_gpt_5.3_codex_t1p0.json
+      - output_dir=./output/sweeps/mipro/
+    api_key_env: OPENAI_API_KEY
