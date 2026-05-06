@@ -108,7 +108,7 @@ def run(task, test_code=""):
     return gen.generate(task)
 
 
-def run_k(task, k, max_workers=None, test_code="", language=None):
+def run_k(task, k, max_workers=None, test_code="", language=None, rollout_offset=0):
     gen = _get_generator()
     return [gen.generate(task) for _ in range(k)]
 

@@ -311,7 +311,7 @@ def iterate_scenarios(config: IterateConfig):
                     error = None
 
                     try:
-                        codes = run_k(scenario, 1, test_code=test_code or "", language=config.language)
+                        codes = run_k(scenario, 1, test_code=test_code or "", language=config.language, rollout_offset=r_idx)
                         if not codes:
                             raise RuntimeError("run_k returned no code samples")
                         code = codes[0]

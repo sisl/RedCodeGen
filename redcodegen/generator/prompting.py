@@ -74,7 +74,7 @@ def run(task, test_code="", language=DEFAULT_LANGUAGE):
     code = _active_coder()(task=task, language=lang_config.name, test_code=test_code).code
     return code.replace(f"```{lang_config.code_fence}", "").replace("```", "").strip()
 
-def run_k(task, k, max_workers=None, test_code="", language=DEFAULT_LANGUAGE):
+def run_k(task, k, max_workers=None, test_code="", language=DEFAULT_LANGUAGE, rollout_offset=0):
     lang_config = get_language_config(language)
     active = _active_coder()
     def _generate_one(i):
@@ -87,7 +87,7 @@ def run_k(task, k, max_workers=None, test_code="", language=DEFAULT_LANGUAGE):
         return code.replace(f"```{lang_config.code_fence}", "").replace("```", "").strip()
 
     with ThreadPoolExecutor(max_workers=max_workers or k) as executor:
-        return list(executor.map(_generate_one, range(k)))
+        return list(executor.map(_generate_one, range(rollout_offset, rollout_offset + k)))
 
 
 def run_example(path=None, str=None, min_scenarios=3, language=DEFAULT_LANGUAGE):
