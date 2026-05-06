@@ -1,0 +1,135 @@
+# Tunable Iterate Sweep — GPT family, all coder modes
+# ----------------------------------------------------
+# Runs the new `iterate` command (roll-until-clean-or-cap) across the GPT
+# family in all four coder modes — standard, secure, barebones, and the
+# GEPA-optimized prompt — for direct comparison of how many rollouts each
+# configuration needs to produce a vulnerability-free sample.
+#
+# 10 scenarios per CWE × 36-rollout cap, repeated for each (model, mode) pair.
+# 4 models × 4 modes = 16 runs.
+#
+# Outputs are partitioned by mode subdir so filenames don't collide:
+#   ./output/sweeps/iterate/standard/
+#   ./output/sweeps/iterate/secure/
+#   ./output/sweeps/iterate/barebones/
+#   ./output/sweeps/iterate/gepa/
+#
+# Usage:
+#   rcg sweep iterate -r config/sweeps/tunable_iterate.yaml
+
+defaults:
+  - min_samples=10
+  - max_rollouts_per_scenario=36
+
+runs:
+  # ===== Standard coder =====
+  - name: iterate-gpt-5.4-nano
+    overrides:
+      - model=openai/gpt-5.4-nano
+      - output_dir=./output/sweeps/iterate/standard/
+    api_key_env: OPENAI_API_KEY
+
+  - name: iterate-gpt-5.4-mini
+    overrides:
+      - model=openai/gpt-5.4-mini
+      - output_dir=./output/sweeps/iterate/standard/
+    api_key_env: OPENAI_API_KEY
+
+  - name: iterate-gpt-5.4
+    overrides:
+      - model=openai/gpt-5.4
+      - output_dir=./output/sweeps/iterate/standard/
+    api_key_env: OPENAI_API_KEY
+
+  - name: iterate-gpt-5.3-codex
+    overrides:
+      - model=openai/gpt-5.3-codex
+      - output_dir=./output/sweeps/iterate/standard/
+    api_key_env: OPENAI_API_KEY
+
+  # ===== Secure coder =====
+  - name: iterate-secure-gpt-5.4-nano
+    overrides:
+      - model=openai/gpt-5.4-nano
+      - secure=true
+      - output_dir=./output/sweeps/iterate/secure/
+    api_key_env: OPENAI_API_KEY
+
+  - name: iterate-secure-gpt-5.4-mini
+    overrides:
+      - model=openai/gpt-5.4-mini
+      - secure=true
+      - output_dir=./output/sweeps/iterate/secure/
+    api_key_env: OPENAI_API_KEY
+
+  - name: iterate-secure-gpt-5.4
+    overrides:
+      - model=openai/gpt-5.4
+      - secure=true
+      - output_dir=./output/sweeps/iterate/secure/
+    api_key_env: OPENAI_API_KEY
+
+  - name: iterate-secure-gpt-5.3-codex
+    overrides:
+      - model=openai/gpt-5.3-codex
+      - secure=true
+      - output_dir=./output/sweeps/iterate/secure/
+    api_key_env: OPENAI_API_KEY
+
+  # ===== Barebones coder =====
+  - name: iterate-barebones-gpt-5.4-nano
+    overrides:
+      - model=openai/gpt-5.4-nano
+      - barebones=true
+      - output_dir=./output/sweeps/iterate/barebones/
+    api_key_env: OPENAI_API_KEY
+
+  - name: iterate-barebones-gpt-5.4-mini
+    overrides:
+      - model=openai/gpt-5.4-mini
+      - barebones=true
+      - output_dir=./output/sweeps/iterate/barebones/
+    api_key_env: OPENAI_API_KEY
+
+  - name: iterate-barebones-gpt-5.4
+    overrides:
+      - model=openai/gpt-5.4
+      - barebones=true
+      - output_dir=./output/sweeps/iterate/barebones/
+    api_key_env: OPENAI_API_KEY
+
+  - name: iterate-barebones-gpt-5.3-codex
+    overrides:
+      - model=openai/gpt-5.3-codex
+      - barebones=true
+      - output_dir=./output/sweeps/iterate/barebones/
+    api_key_env: OPENAI_API_KEY
+
+  # ===== GEPA prompt-optimized coder =====
+  - name: iterate-gepa-gpt-5.4-nano
+    overrides:
+      - model=openai/gpt-5.4-nano
+      - coder_prompt=./output/sweeps/optimize_gepa_gpt_5.4_nano_t1p0.json
+      - output_dir=./output/sweeps/iterate/gepa/
+    api_key_env: OPENAI_API_KEY
+
+  - name: iterate-gepa-gpt-5.4-mini
+    overrides:
+      - model=openai/gpt-5.4-mini
+      - coder_prompt=./output/sweeps/optimize_gepa_gpt_5.4_mini_t1p0.json
+      - output_dir=./output/sweeps/iterate/gepa/
+    api_key_env: OPENAI_API_KEY
+
+  - name: iterate-gepa-gpt-5.4
+    overrides:
+      - model=openai/gpt-5.4
+      - coder_prompt=./output/sweeps/optimize_gepa_gpt_5.4_t1p0.json
+      - output_dir=./output/sweeps/iterate/gepa/
+    api_key_env: OPENAI_API_KEY
+
+  - name: iterate-gepa-gpt-5.3-codex
+    overrides:
+      - model=openai/gpt-5.3-codex
+      - coder_prompt=./output/sweeps/optimize_gepa_gpt_5.3_codex_t1p0.json
+      - output_dir=./output/sweeps/iterate/gepa/
+    api_key_env: OPENAI_API_KEY

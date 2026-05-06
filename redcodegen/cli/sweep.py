@@ -8,10 +8,11 @@ from omegaconf import OmegaConf
 from pathlib import Path
 from itertools import product
 
-from redcodegen.config import GenerateConfig, RegenerateConfig, AmplifyConfig, OptimizeConfig
+from redcodegen.config import GenerateConfig, IterateConfig, RegenerateConfig, AmplifyConfig, OptimizeConfig
 from redcodegen.cli.app import app
 from redcodegen.cli.utils import configure_logging
 from redcodegen.cli.generate import generate_scenarios
+from redcodegen.cli.iterate import iterate_scenarios
 from redcodegen.cli.regenerate import run_regeneration
 from redcodegen.cli.amplify import run_amplification
 from redcodegen.cli.optimize import run_optimization
@@ -187,6 +188,14 @@ def _run_generate_task(task):
     logger.info(f"[{run_name}] Completed.")
 
 
+def _run_iterate_task(task):
+    cfg, run_name = task
+    configure_logging(verbose=cfg.verbose)
+    logger.info(f"[{run_name}] Starting iteration...")
+    iterate_scenarios(cfg)
+    logger.info(f"[{run_name}] Completed.")
+
+
 def _run_regenerate_task(task):
     cfg, run_name = task
     configure_logging(verbose=cfg.verbose)
@@ -244,6 +253,29 @@ def generate(
 
     tasks = _build_sweep_tasks(config_name, overrides, runs_config, GenerateConfig)
     _dispatch_sweep_tasks(tasks, n_workers, _run_generate_task, "Generation sweep")
+
+
+@sweep_app.command("iterate")
+def sweep_iterate(
+    config_name: str = "iterate",
+    overrides: list[str] = typer.Argument(default=None),
+    runs_config: Path | None = typer.Option(
+        None, "--runs-config", "-r",
+        exists=True, file_okay=True, dir_okay=False, resolve_path=True,
+        help="YAML file with runs; each run requires Hydra 'overrides' plus optional api_key_env.",
+    ),
+    workers: int | None = typer.Option(
+        None, "--workers", "-w",
+        help="Number of parallel workers (default: CPU count). Use 1 for serial execution.",
+    ),
+):
+    """Run a sweep of iterate jobs across different CWEs / models / coder modes."""
+    configure_logging(verbose=False)
+    n_workers = workers if workers is not None else os.cpu_count()
+    logger.info(f"Starting iterate sweep ({n_workers} worker(s))...")
+
+    tasks = _build_sweep_tasks(config_name, overrides, runs_config, IterateConfig)
+    _dispatch_sweep_tasks(tasks, n_workers, _run_iterate_task, "Iterate sweep")
 
 
 @sweep_app.command("regenerate")
