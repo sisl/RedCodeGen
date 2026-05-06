@@ -7,7 +7,7 @@ min_samples: 3
 output_dir: ./output/sweeps/
 api_key: null
 api_base: null
-test_model: "openai/gpt-5.3-codex"
+test_model: "openai/gpt-5.4"
 test_api_key: null
 test_api_base: null
 max_rollouts_per_scenario: 36
