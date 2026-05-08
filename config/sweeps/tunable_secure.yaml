@@ -5,7 +5,7 @@
 # write code that survives CWE static analysis. OpenAI models only.
 #
 # Usage:
-#   rcg sweep generate -r config/sweeps/tunable_secure.yaml
+#   sf sweep generate -r config/sweeps/tunable_secure.yaml
 
 defaults:
   - min_samples=10

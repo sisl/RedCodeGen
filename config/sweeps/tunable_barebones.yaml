@@ -6,7 +6,7 @@
 # OpenAI models only.
 #
 # Usage:
-#   rcg sweep generate -r config/sweeps/tunable_barebones.yaml
+#   sf sweep generate -r config/sweeps/tunable_barebones.yaml
 
 defaults:
   - min_samples=10

@@ -1,6 +1,6 @@
 """Tests for build_script_header (PEP 723 inline metadata)."""
 
-from redcodegen.test_env import build_script_footer, build_script_header
+from secureforge.test_env import build_script_footer, build_script_header
 
 
 class TestBuildScriptHeader:

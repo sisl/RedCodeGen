@@ -3,7 +3,7 @@
 # MCMC amplification of Kimi-K2.6's own generated scenarios via Together AI.
 #
 # Usage:
-#   rcg sweep amplify -r config/sweeps/amplify_tunable_kimi.yaml
+#   sf sweep amplify -r config/sweeps/amplify_tunable_kimi.yaml
 
 defaults: []
 

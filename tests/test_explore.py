@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from redcodegen.cli.explore import (
+from secureforge.cli.explore import (
     Rollout,
     TestDetails,
     TestResult,

@@ -2,7 +2,7 @@
 
 import pytest
 
-from redcodegen.test_gen import _parse_test_results, _parse_pytest_counts
+from secureforge.test_gen import _parse_test_results, _parse_pytest_counts
 
 
 # ---------------------------------------------------------------------------

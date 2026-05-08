@@ -5,7 +5,7 @@
 # Covers all tunable models (GPT, CodeLlama, Qwen2.5-Coder, Qwen3.5).
 #
 # Usage:
-#   rcg sweep optimize -r config/sweeps/optimize_tunable.yaml
+#   sf sweep optimize -r config/sweeps/optimize_tunable.yaml
 
 defaults: []
 

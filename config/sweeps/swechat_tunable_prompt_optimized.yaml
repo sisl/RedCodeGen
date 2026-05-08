@@ -4,7 +4,7 @@
 # coder prompt produced by GEPA optimization.
 #
 # Usage:
-#   rcg sweep swechat -r config/sweeps/swechat_tunable_prompt_optimized.yaml -i data/swe-chat-for-redcodegen-tasks_2026-04-16_02-23-29.json
+#   sf sweep swechat -r config/sweeps/swechat_tunable_prompt_optimized.yaml -i data/swe-chat-for-secureforge-tasks_2026-04-16_02-23-29.json
 
 defaults:
   - num_rollouts=10

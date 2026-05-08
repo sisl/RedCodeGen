@@ -2,7 +2,7 @@
 
 import pytest
 
-from redcodegen.test_env import extract_imports, resolve_packages
+from secureforge.test_env import extract_imports, resolve_packages
 
 
 class TestExtractImports:

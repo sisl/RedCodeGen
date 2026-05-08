@@ -1,5 +1,5 @@
 [project]
-name = "redcodegen"
+name = "secureforge"
 version = "0.3.0"
 description = "Language model security defense."
 readme = "README.md"
@@ -33,8 +33,8 @@ dependencies = [
 ]
 
 [project.scripts]
-redcodegen = "redcodegen.cli:main"
-rcg = "redcodegen.cli:main"
+secureforge = "secureforge.cli:main"
+sf = "secureforge.cli:main"
 
 [tool.uv]
 package = true
@@ -62,9 +62,9 @@ cpu = [
 ]
 
 [tool.uv.build-backend]
-module-name = "redcodegen"
+module-name = "secureforge"
 module-root = ""
-source-include = ["./redcodegen/data/*"]
+source-include = ["./secureforge/data/*"]
 
 [[tool.uv.index]]
 name = "pytorch-cu130"

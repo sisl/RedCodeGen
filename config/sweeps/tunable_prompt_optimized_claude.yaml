@@ -4,7 +4,7 @@
 # hardened coder prompt produced by GEPA optimization.
 #
 # Usage:
-#   rcg sweep generate -r config/sweeps/tunable_prompt_optimized_claude.yaml
+#   sf sweep generate -r config/sweeps/tunable_prompt_optimized_claude.yaml
 
 defaults:
   - min_samples=10
