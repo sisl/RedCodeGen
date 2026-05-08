@@ -4349,7 +4349,7 @@ wheels = [
 
 [[package]]
 name = "secureforge"
-version = "0.3.0"
+version = "0.3.0.post1"
 source = { editable = "." }
 dependencies = [
     { name = "accelerate" },

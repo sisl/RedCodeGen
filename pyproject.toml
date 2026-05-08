@@ -1,6 +1,6 @@
 [project]
 name = "secureforge"
-version = "0.3.0"
+version = "0.3.0.post1"
 description = "Language model security defense."
 readme = "README.md"
 requires-python = ">=3.11"

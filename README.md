@@ -26,8 +26,8 @@ Developed by the Stanford Intelligent Systems Laboratory (SISL) as a part of [as
 
 ## Installation
 
-### CodeQL
-**First, you must install CodeQL and have it available in your PATH.**
+### Static Analysis 
+To use the Semgrep backend, no action is needed. To use the CodeQL backend, you must install CodeQL:
 
 - macOS Users: `brew install codeql`
 - Windows/Linux Users: follow the instructions [here](https://docs.github.com/en/code-security/codeql-cli/getting-started-with-the-codeql-cli/setting-up-the-codeql-cli)
