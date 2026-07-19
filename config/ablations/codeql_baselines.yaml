@@ -1,0 +1,49 @@
+# CodeQL Prompt Baselines — GPT-5.4
+# ----------------------------------
+# Compares the standard, secure, and barebones coder signatures under the
+# same CodeQL evaluation protocol. The final run evaluates the existing
+# GEPA prompt optimized with Semgrep under CodeQL to measure cross-analyzer
+# transfer in joint functional-test and static-analysis passage rate.
+#
+# All runs use the exact GPT-5.4 model (no nano, mini, or Codex variants) and
+# the same 10 scenarios x 10 rollouts per CWE as the source sweeps.
+#
+# Usage:
+#   sf sweep generate -r config/ablations/codeql_baselines.yaml
+
+defaults:
+  - min_samples=10
+  - num_rollouts=10
+  - analysis_tool=codeql
+
+runs:
+  # Baseline: standard coder prompt (from tunable.yaml).
+  - name: codeql-standard-gpt-5.4
+    overrides:
+      - model=openai/gpt-5.4
+      - output_dir=./output/ablations/codeql_baselines/standard/
+    api_key_env: OPENAI_API_KEY
+
+  # Baseline: security-hardened coder prompt (from tunable_secure.yaml).
+  - name: codeql-secure-gpt-5.4
+    overrides:
+      - model=openai/gpt-5.4
+      - +secure=true
+      - output_dir=./output/ablations/codeql_baselines/secure/
+    api_key_env: OPENAI_API_KEY
+
+  # Baseline: minimal coder prompt (from tunable_barebones.yaml).
+  - name: codeql-barebones-gpt-5.4
+    overrides:
+      - model=openai/gpt-5.4
+      - +barebones=true
+      - output_dir=./output/ablations/codeql_baselines/barebones/
+    api_key_env: OPENAI_API_KEY
+
+  # Cross-baseline transfer: Semgrep-optimized GEPA prompt evaluated by CodeQL.
+  - name: codeql-semgrep-gepa-transfer-gpt-5.4
+    overrides:
+      - model=openai/gpt-5.4
+      - coder_prompt=./output/sweeps/optimize_gepa_gpt_5.4_t1p0.json
+      - output_dir=./output/ablations/codeql_baselines/semgrep_gepa_transfer/
+    api_key_env: OPENAI_API_KEY
