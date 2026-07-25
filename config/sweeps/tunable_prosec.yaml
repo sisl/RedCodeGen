@@ -1,0 +1,10 @@
+defaults:
+  - min_samples=10
+  - num_rollouts=10
+
+runs:
+  - name: prosec
+    overrides:
+      - model=prosecalign/qwen2.5-coder-3B
+      - api_base=http://wroclaw.stanford.edu:11401/v1
+    # api_key_env: TOGETHER_API_KEY
