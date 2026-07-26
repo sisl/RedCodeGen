@@ -1,0 +1,18 @@
+# Redteam Sweep — GPT-5.4 (Prompt-Optimized), 100 IID Samples
+# -------------------------------------------------------------
+# Actively red-teams the output of tunable_prompt_optimized_gpt54.yaml
+# (the GEPA-optimized 10x10 generate sweep for GPT-5.4), limited to 100
+# uniformly IID-sampled flagged samples.
+#
+# Run the generate sweep first:
+#   sf sweep generate -r config/sweeps/tunable_prompt_optimized_gpt54.yaml
+# then:
+#   sf sweep redteam -r config/sweeps/redteam_gpt54.yaml
+
+runs:
+  - name: redteam-gpt-5.4
+    overrides:
+      - input_file=./output/sweeps/gepa/generated_scenarios_gpt_5.4_t1p0_n10_k10.jsonl
+      - output=./output/sweeps/gepa/redteam_gpt_5.4_t1p0_n10_k10_limit100.jsonl
+      - limit=100
+      - seed=0

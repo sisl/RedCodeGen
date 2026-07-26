@@ -6,11 +6,15 @@ from pathlib import Path
 import pytest
 
 from secureforge.cli.explore import (
+    RedteamResult,
     Rollout,
     TestDetails,
     TestResult,
     _compute_rollout_stats,
+    _format_stats_block,
+    _parse_redteam,
     _parse_test_details,
+    _redteam_status,
     load_data,
 )
 
@@ -151,3 +155,97 @@ class TestComputeRolloutStats:
         assert stats["total_tests"] == 2
         assert stats["total_tests_passed"] == 2
         assert stats["test_pass_rate"] == "100.0%"
+
+
+# ---------------------------------------------------------------------------
+# _parse_redteam
+# ---------------------------------------------------------------------------
+
+
+class TestParseRedteam:
+    def test_none_input(self):
+        assert _parse_redteam(None) is None
+
+    def test_non_dict_input(self):
+        assert _parse_redteam("not a dict") is None
+
+    def test_valid_dict(self):
+        rt = _parse_redteam({
+            "success": True, "exit_code": 1, "error": None,
+            "run_script": "#!/bin/bash\nexit 1\n",
+        })
+        assert rt == RedteamResult(success=True, exit_code=1, error=None,
+                                   run_script="#!/bin/bash\nexit 1\n")
+
+    def test_defaults(self):
+        rt = _parse_redteam({})
+        assert rt is not None
+        assert rt.success is False
+        assert rt.exit_code is None
+        assert rt.error is None
+        assert rt.run_script is None
+
+
+class TestRedteamStatus:
+    def test_none(self):
+        assert _redteam_status(None) == "-"
+
+    def test_success(self):
+        assert _redteam_status(RedteamResult(success=True, exit_code=1, error=None)) == "SUCCESS"
+
+    def test_safe(self):
+        assert _redteam_status(RedteamResult(success=False, exit_code=0, error=None)) == "SAFE"
+
+    def test_error(self):
+        assert _redteam_status(RedteamResult(success=False, exit_code=None, error="boom")) == "ERROR"
+
+
+class TestRedteamStats:
+    def test_aggregates(self):
+        rollouts = [
+            Rollout(code="", passes_tests=None, vulnerabilities=[],
+                    redteam=RedteamResult(success=True, exit_code=1, error=None)),
+            Rollout(code="", passes_tests=None, vulnerabilities=[],
+                    redteam=RedteamResult(success=False, exit_code=0, error=None)),
+            Rollout(code="", passes_tests=None, vulnerabilities=[],
+                    redteam=RedteamResult(success=False, exit_code=None, error="kimi missing")),
+            Rollout(code="", passes_tests=None, vulnerabilities=[], redteam=None),
+        ]
+        stats = _compute_rollout_stats(rollouts)
+        assert stats["redteam_attempted"] == 3
+        assert stats["redteam_succeeded"] == 1
+        assert stats["redteam_errors"] == 1
+        assert stats["redteam_rate"] == "33.3%"
+
+    def test_stats_block_shows_redteam_only_when_available(self):
+        with_rt = [Rollout(code="", passes_tests=None, vulnerabilities=[],
+                           redteam=RedteamResult(success=True, exit_code=1, error=None))]
+        block = _format_stats_block(_compute_rollout_stats(with_rt))
+        assert "Red-team success rate: 100.0% (1/1)" in block
+
+        without_rt = [Rollout(code="", passes_tests=None, vulnerabilities=[])]
+        block = _format_stats_block(_compute_rollout_stats(without_rt))
+        assert "Red team" not in block
+
+    def test_load_data_parses_redteam(self, tmp_path):
+        record = {
+            "cwe_id": 78,
+            "cwe_description": "x",
+            "scenarios": [{
+                "scenario": "s",
+                "tests": None,
+                "rollouts": [{
+                    "code": "c", "passes_tests": True, "vulnerabilities": [],
+                    "redteam": {"success": True, "exit_code": 1, "error": None,
+                                "run_script": "exit 1"},
+                }],
+            }],
+        }
+        path = tmp_path / "rt.jsonl"
+        path.write_text(json.dumps(record) + "\n")
+        cwes, _ = load_data(path)
+        rt = cwes[0].scenarios[0].rollouts[0].redteam
+        assert rt is not None
+        assert rt.success is True
+        assert rt.exit_code == 1
+        assert rt.run_script == "exit 1"

@@ -1,0 +1,19 @@
+# Tunable Model Sweep — Prompt-Optimized, GPT-5.4 only
+# ------------------------------------------------------
+# Single-run slice of tunable_prompt_optimized.yaml: the GEPA-optimized
+# 10x10 generate sweep for GPT-5.4.
+#
+# Usage:
+#   sf sweep generate -r config/sweeps/tunable_prompt_optimized_gpt54.yaml
+
+defaults:
+  - min_samples=10
+  - num_rollouts=10
+
+runs:
+  - name: gepa-gpt-5.4
+    overrides:
+      - model=openai/gpt-5.4
+      - coder_prompt=./output/sweeps/optimize_gepa_gpt_5.4_t1p0.json
+      - output_dir=./output/sweeps/gepa/
+    api_key_env: OPENAI_API_KEY

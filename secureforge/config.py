@@ -198,6 +198,22 @@ class OptimizeConfig(BaseConfig):
     dpo_beta: float = 0.1
 
 
+class RedteamConfig(BaseConfig):
+    input_file: str = ""
+    output: str = ""
+    workers: int = 4
+    kimi_model: str | None = None
+    agent_timeout: int = 600
+    run_timeout: int = 60
+    limit: int | None = None
+    seed: int = 0
+    language: str = "python"
+
+    def to_record(self) -> dict:
+        """Serialize config for JSONL output."""
+        return self.model_dump(mode="json", exclude={"verbose"})
+
+
 class AmplifyConfig(BaseConfig):
     input_file: str = ""
     output: str = ""

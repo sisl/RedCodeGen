@@ -8,13 +8,14 @@ from omegaconf import OmegaConf
 from pathlib import Path
 from itertools import product
 
-from secureforge.config import GenerateConfig, IterateConfig, RegenerateConfig, AmplifyConfig, OptimizeConfig
+from secureforge.config import GenerateConfig, IterateConfig, RegenerateConfig, AmplifyConfig, OptimizeConfig, RedteamConfig
 from secureforge.cli.app import app
 from secureforge.cli.utils import configure_logging
 from secureforge.cli.generate import generate_scenarios
 from secureforge.cli.iterate import iterate_scenarios
 from secureforge.cli.regenerate import run_regeneration
 from secureforge.cli.amplify import run_amplification
+from secureforge.cli.redteam import run_redteam_scenarios
 from secureforge.cli.optimize import run_optimization
 from secureforge.cli.swechat import run_swechat
 
@@ -212,6 +213,14 @@ def _run_amplify_task(task):
     logger.info(f"[{run_name}] Completed.")
 
 
+def _run_redteam_task(task):
+    cfg, run_name = task
+    configure_logging(verbose=cfg.verbose)
+    logger.info(f"[{run_name}] Starting red teaming...")
+    run_redteam_scenarios(cfg)
+    logger.info(f"[{run_name}] Completed.")
+
+
 def _run_optimize_task(task):
     cfg, run_name = task
     configure_logging(verbose=cfg.verbose)
@@ -347,6 +356,41 @@ def sweep_amplify(
 
     tasks = _build_sweep_tasks(config_name, overrides, runs_config, AmplifyConfig, post_build=_post_build)
     _dispatch_sweep_tasks(tasks, n_workers, _run_amplify_task, "Amplification sweep")
+
+
+@sweep_app.command("redteam")
+def sweep_redteam(
+    config_name: str = "redteam",
+    overrides: list[str] = typer.Argument(default=None),
+    runs_config: Path | None = typer.Option(
+        None, "--runs-config", "-r",
+        exists=True, file_okay=True, dir_okay=False, resolve_path=True,
+        help="YAML file with runs.",
+    ),
+    workers: int | None = typer.Option(
+        None, "--workers", "-w",
+        help="Number of parallel workers (default: CPU count). Use 1 for serial execution.",
+    ),
+    input_file: str | None = typer.Option(None, "--input", "-i", help="Input JSONL file from generate command (overrides per-run input_file)"),
+    output_dir: str = typer.Option("./output/sweeps/", "--output-dir", "-o", help="Output directory for results"),
+):
+    """Run a sweep of red-team jobs across different generate outputs / agent models."""
+    configure_logging(verbose=False)
+    n_workers = workers if workers is not None else os.cpu_count()
+    logger.info(f"Starting redteam sweep ({n_workers} worker(s))...")
+
+    def _post_build(cfg, run_name):
+        updates = {}
+        if input_file:
+            updates["input_file"] = input_file
+        if not cfg.output and updates.get("input_file", cfg.input_file):
+            input_name = Path(updates.get("input_file", cfg.input_file)).name
+            updates["output"] = str(Path(output_dir) / f"redteam_{input_name}")
+        cfg = cfg.model_copy(update=updates)
+        return cfg
+
+    tasks = _build_sweep_tasks(config_name, overrides, runs_config, RedteamConfig, post_build=_post_build)
+    _dispatch_sweep_tasks(tasks, n_workers, _run_redteam_task, "Redteam sweep")
 
 
 @sweep_app.command("optimize")

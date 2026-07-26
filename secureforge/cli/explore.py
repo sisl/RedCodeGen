@@ -64,11 +64,20 @@ class Vulnerability:
 
 
 @dataclass
+class RedteamResult:
+    success: bool
+    exit_code: int | None
+    error: str | None
+    run_script: str | None = None
+
+
+@dataclass
 class Rollout:
     code: str
     passes_tests: bool | None
     vulnerabilities: list[Vulnerability]
     test_details: TestDetails | None = None
+    redteam: RedteamResult | None = None
 
 
 @dataclass
@@ -150,6 +159,17 @@ def _vuln_rate(numerator: int, denominator: int) -> str:
     return f"{numerator / denominator * 100:.1f}%"
 
 
+def _redteam_status(redteam: RedteamResult | None) -> str:
+    """Short per-rollout red-team status for tables."""
+    if redteam is None:
+        return "-"
+    if redteam.success:
+        return "SUCCESS"
+    if redteam.exit_code is not None:
+        return "SAFE"
+    return "ERROR"
+
+
 def _severity_stats(rollouts: list[Rollout]) -> dict[str, str]:
     """Compute avg/min/max security severity across all vulnerabilities."""
     severities = [
@@ -187,6 +207,11 @@ def _compute_rollout_stats(rollouts: list[Rollout]) -> dict[str, Any]:
     total_tests = sum(r.test_details.num_tests for r in rollouts if r.test_details)
     total_tests_passed = sum(r.test_details.num_passed for r in rollouts if r.test_details)
 
+    # Red-team aggregates (only present in redteam output files)
+    redteam_attempted = sum(1 for r in rollouts if r.redteam is not None)
+    redteam_succeeded = sum(1 for r in rollouts if r.redteam is not None and r.redteam.success)
+    redteam_errors = sum(1 for r in rollouts if r.redteam is not None and r.redteam.error)
+
     result = {
         "total": total,
         "passing": passing,
@@ -203,6 +228,10 @@ def _compute_rollout_stats(rollouts: list[Rollout]) -> dict[str, Any]:
         "total_tests": total_tests,
         "total_tests_passed": total_tests_passed,
         "test_pass_rate": _vuln_rate(total_tests_passed, total_tests),
+        "redteam_attempted": redteam_attempted,
+        "redteam_succeeded": redteam_succeeded,
+        "redteam_errors": redteam_errors,
+        "redteam_rate": _vuln_rate(redteam_succeeded, redteam_attempted),
     }
     result.update(_severity_stats(rollouts))
     return result
@@ -231,6 +260,15 @@ def _format_stats_block(stats: dict[str, Any]) -> str:
         f"Security severity  avg: {stats['severity_avg']}  "
         f"min: {stats['severity_min']}  max: {stats['severity_max']}",
     ]
+    if stats["redteam_attempted"] > 0:
+        lines += [
+            "",
+            f"Red team attempted: {stats['redteam_attempted']}",
+            f"  Succeeded:        {stats['redteam_succeeded']}",
+            f"  Errored:          {stats['redteam_errors']}",
+            f"Red-team success rate: {stats['redteam_rate']} "
+            f"({stats['redteam_succeeded']}/{stats['redteam_attempted']})",
+        ]
     return "\n".join(lines)
 
 
@@ -292,6 +330,22 @@ def _parse_vulnerabilities(raw: Any) -> list[Vulnerability]:
     return vulns
 
 
+def _parse_redteam(raw: Any) -> RedteamResult | None:
+    """Parse a redteam result dict from a rollout. Returns None if absent/invalid."""
+    if not isinstance(raw, dict):
+        return None
+    try:
+        exit_code = raw.get("exit_code")
+        return RedteamResult(
+            success=bool(raw.get("success", False)),
+            exit_code=int(exit_code) if exit_code is not None else None,
+            error=raw.get("error"),
+            run_script=raw.get("run_script"),
+        )
+    except (TypeError, ValueError):
+        return None
+
+
 def _parse_test_details(raw: Any) -> TestDetails | None:
     """Parse test_details from a rollout dict. Returns None if absent/invalid."""
     if not isinstance(raw, dict):
@@ -328,6 +382,7 @@ def _load_record_new_format(record: dict[str, Any]) -> CWERecord:
                     test_details=_parse_test_details(
                         ro.get("test_details")
                     ),
+                    redteam=_parse_redteam(ro.get("redteam")),
                 )
             )
         scenarios.append(
@@ -869,6 +924,7 @@ class ExploreApp(App[None]):
             "ID", "Scenarios", "Rollouts", "Pass", "Fail",
             "Test Pass Rate",
             "Vuln Rate", "Vuln Rate (Tests Pass)", "Vuln Rate (Tests Fail)",
+            "Redteam Rate",
             "Sev Avg", "Sev Min", "Sev Max",
         )
         for cwe in self._cwes:
@@ -884,6 +940,7 @@ class ExploreApp(App[None]):
                 cs["vuln_rate"],
                 cs["vuln_rate_passing"],
                 cs["vuln_rate_failing"],
+                cs["redteam_rate"],
                 cs["severity_avg"],
                 cs["severity_min"],
                 cs["severity_max"],
@@ -911,6 +968,7 @@ class ExploreApp(App[None]):
             "#", "Description", "Rollouts", "Pass", "Fail",
             "Test Pass Rate",
             "Vuln Rate", "Vuln Rate (Tests Pass)", "Vuln Rate (Tests Fail)",
+            "Redteam Rate",
             "Sev Avg", "Sev Min", "Sev Max",
         )
         for si, scenario in enumerate(cwe.scenarios):
@@ -923,6 +981,7 @@ class ExploreApp(App[None]):
                 str(ss["passing"]), str(ss["failing"]),
                 ss["test_pass_rate"],
                 ss["vuln_rate"], ss["vuln_rate_passing"], ss["vuln_rate_failing"],
+                ss["redteam_rate"],
                 ss["severity_avg"], ss["severity_min"], ss["severity_max"],
             )
         container.mount(Static("Scenarios:", classes="detail-section"))
@@ -973,7 +1032,7 @@ class ExploreApp(App[None]):
         table = DataTable()
         col_keys = table.add_columns(
             "#", "Status", "Passed", "Failed", "Test Pass Rate",
-            "Vulns", "Sev Avg", "Lines",
+            "Vulns", "Redteam", "Sev Avg", "Lines",
         )
         for ri, rollout in enumerate(scenario.rollouts):
             status = "?"
@@ -994,6 +1053,7 @@ class ExploreApp(App[None]):
                 failed_str,
                 pass_rate,
                 str(len(rollout.vulnerabilities)),
+                _redteam_status(rollout.redteam),
                 sev["severity_avg"],
                 str(line_count),
             )
@@ -1038,6 +1098,11 @@ class ExploreApp(App[None]):
         )
         line_count = rollout.code.count("\n") + 1
         summary = f"{test_status}  |  {vuln_status}  |  {line_count} lines"
+        if rollout.redteam is not None:
+            rt_status = f"Red team: {_redteam_status(rollout.redteam)}"
+            if rollout.redteam.exit_code is not None:
+                rt_status += f" (exit {rollout.redteam.exit_code})"
+            summary += f"  |  {rt_status}"
         container.mount(Static(summary, classes="stats-label"))
 
         # Code viewer
@@ -1093,6 +1158,24 @@ class ExploreApp(App[None]):
             container.mount(
                 Static("No vulnerabilities found.", classes="detail-section")
             )
+
+        # Red-team exploit script and error, if available
+        if rollout.redteam is not None:
+            if rollout.redteam.error:
+                container.mount(
+                    Static(f"Red team error: {rollout.redteam.error}", classes="detail-section")
+                )
+            if rollout.redteam.run_script:
+                container.mount(Static("Red team run.sh:", classes="detail-section"))
+                rt_area = TextArea(
+                    rollout.redteam.run_script,
+                    language="bash",
+                    theme="monokai",
+                    show_line_numbers=True,
+                    read_only=True,
+                    classes="code-viewer",
+                )
+                container.mount(rt_area)
 
     # ----- Event handlers -----
 
