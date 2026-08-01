@@ -19,18 +19,36 @@ Developed by the Stanford Intelligent Systems Laboratory (SISL) as a part of [as
 
 - Generation of realistic coding task prompts that exercise specific CWEs
 - Generation of code samples for specific CWEs or CWE Top 25
-- Automatic code evaluation and vulnerability detection via static analysis ([Semgrep](https://semgrep.dev/) and [CodeQL](https://codeql.github.com/))
+- Automatic code evaluation and vulnerability detection with [Semgrep](https://semgrep.dev/), [CodeQL](https://codeql.github.com/), and [Codex Security](https://github.com/openai/codex-security)
 - Two-model architecture: trusted test model generates scenarios and tests, code model (under test) generates rollouts
 - Local HuggingFace model support for code generation via `--generator`
 - Programmable API for custom scenarios and configurations
 
 ## Installation
 
-### Static Analysis 
-To use the Semgrep backend, no action is needed. To use the CodeQL backend, you must install CodeQL:
+### Analyzers
+
+The Semgrep backend is included with SecureForge and needs no additional setup.
+
+To use the CodeQL backend, install CodeQL separately:
 
 - macOS Users: `brew install codeql`
 - Windows/Linux Users: follow the instructions [here](https://docs.github.com/en/code-security/codeql-cli/getting-started-with-the-codeql-cli/setting-up-the-codeql-cli)
+
+To use the Codex Security backend, install the optional CLI separately. It is
+not included as a SecureForge dependency. Codex Security requires Node.js 22 or
+later, Python 3.10 or later, and an account with Codex Security access.
+
+```bash
+npm install --global @openai/codex-security
+codex-security --version
+codex-security login
+```
+
+You can instead install it in an npm project with
+`npm install @openai/codex-security`; SecureForge will find that installation
+through `npx`. See the [Codex Security CLI quickstart](https://learn.chatgpt.com/docs/security/cli)
+for authentication and access details.
 
 ### SecureForge
 
@@ -103,6 +121,7 @@ sf generate --use-top-25                        # run CWE top 25
 sf generate --use-top-25 --model openai/gpt-4o  # switch code model
 sf generate -g meta-llama/Llama-3-8B            # use local HF model for code generation
 sf generate --analysis-tool codeql              # use CodeQL instead of Semgrep
+sf generate --analysis-tool codex-security      # use the optional Codex Security CLI
 sf generate --reasoning-effort high             # set reasoning effort for code model
 ```
 

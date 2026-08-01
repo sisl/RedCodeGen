@@ -7,6 +7,7 @@ from loguru import logger
 
 class AnalysisTool(Enum):
     CODEQL = "codeql"
+    CODEX_SECURITY = "codex-security"
     SEMGREP = "semgrep"
     ALL = "all"
 

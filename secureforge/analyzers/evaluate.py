@@ -10,6 +10,7 @@ from loguru import logger
 
 from .common import _cleanup, _source_tree_mtime_ns, AnalysisTool
 from .codeql import _run_codeql_analysis
+from .codex_security import _run_codex_security_analysis
 from .semgrep import _run_semgrep_analysis
 from secureforge.language import get_language_config, DEFAULT_LANGUAGE
 
@@ -57,6 +58,10 @@ def evaluate(program: str, workdir: str = "/tmp", analysis_tool: AnalysisTool = 
             logger.debug("Evaluating with Semgrep")
             vulnerabilities.extend(_run_semgrep_analysis(src_dir, workdir))
 
+        if analysis_tool in (AnalysisTool.CODEX_SECURITY, AnalysisTool.ALL):
+            logger.debug("Evaluating with Codex Security")
+            vulnerabilities.extend(_run_codex_security_analysis(src_dir, workdir))
+
         return vulnerabilities
 
     finally:
@@ -84,6 +89,12 @@ def _evaluate_codebase_cached(
     if analysis_tool in (AnalysisTool.SEMGREP, AnalysisTool.ALL):
         logger.debug("Evaluating codebase with Semgrep")
         vulnerabilities.extend(_run_semgrep_analysis(Path(source_root), Path(workdir)))
+
+    if analysis_tool in (AnalysisTool.CODEX_SECURITY, AnalysisTool.ALL):
+        logger.debug("Evaluating codebase with Codex Security")
+        vulnerabilities.extend(
+            _run_codex_security_analysis(Path(source_root), Path(workdir))
+        )
 
     return vulnerabilities
 
