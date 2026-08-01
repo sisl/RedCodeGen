@@ -18,7 +18,8 @@ from typing import Any
 
 from loguru import logger
 
-from secureforge.analyzers.common import _cleanup
+from secureforge.analyzers.common import AnalysisTool, RedteamAnalyzer, _cleanup
+from secureforge.analyzers.evaluate import evaluate
 from secureforge.language import get_language_config, DEFAULT_LANGUAGE
 from secureforge.test_env import extract_imports, resolve_packages, create_uv_env
 
@@ -26,6 +27,41 @@ from secureforge.test_env import extract_imports, resolve_packages, create_uv_en
 MAX_OUTPUT_CHARS = 4000
 
 RUN_SCRIPT = "run.sh"
+
+
+def run_analyzer_check(
+    code: str,
+    analyzer: RedteamAnalyzer,
+    language: str = DEFAULT_LANGUAGE,
+) -> dict[str, Any]:
+    """Run a SecureForge analyzer and adapt its findings to red-team output."""
+    outcome: dict[str, Any] = {
+        "attempted": True,
+        "analyzer": analyzer.value,
+        "success": False,
+        "exit_code": None,
+        "run_script": None,
+        "stdout": "",
+        "stderr": "",
+        "agent_log": "",
+        "findings": [],
+        "error": None,
+    }
+
+    try:
+        findings = evaluate(
+            code,
+            analysis_tool=AnalysisTool(analyzer.value),
+            language=language,
+        )
+    except Exception as exc:
+        outcome["error"] = f"{analyzer.value} analysis failed: {exc}"
+        return outcome
+
+    outcome["findings"] = findings
+    outcome["success"] = bool(findings)
+    outcome["exit_code"] = 1 if findings else 0
+    return outcome
 
 
 def _tail(text: str, max_chars: int = MAX_OUTPUT_CHARS) -> str:
@@ -180,6 +216,7 @@ def run_redteam(
     """
     outcome: dict[str, Any] = {
         "attempted": True,
+        "analyzer": RedteamAnalyzer.KIMI.value,
         "success": False,
         "exit_code": None,
         "run_script": None,

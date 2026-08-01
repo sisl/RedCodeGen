@@ -4,8 +4,14 @@ import jsonlines
 import pytest
 import typer
 
+from secureforge.analyzers.common import RedteamAnalyzer
 from secureforge.config import RedteamConfig
-from secureforge.redteam import build_redteam_prompt, run_redteam, RUN_SCRIPT
+from secureforge.redteam import (
+    RUN_SCRIPT,
+    build_redteam_prompt,
+    run_analyzer_check,
+    run_redteam,
+)
 from secureforge.cli.redteam import _rollout_key, load_completed_rollouts, run_redteam_scenarios
 from secureforge.cli.sweep import sweep_redteam
 
@@ -82,6 +88,38 @@ class TestRunRedteam:
         assert result["success"] is False
         assert result["exit_code"] is None
         assert "kimi CLI not found" in result["error"]
+
+
+class TestRunAnalyzerCheck:
+    def test_findings_are_cross_analyzer_success(self, monkeypatch):
+        findings = [{"rule": "py/command-injection", "analyzer": "semgrep"}]
+        monkeypatch.setattr("secureforge.redteam.evaluate", lambda *args, **kwargs: findings)
+
+        result = run_analyzer_check(CODE, RedteamAnalyzer.SEMGREP)
+
+        assert result["analyzer"] == "semgrep"
+        assert result["success"] is True
+        assert result["exit_code"] == 1
+        assert result["findings"] == findings
+
+    def test_no_findings_are_cross_analyzer_safe(self, monkeypatch):
+        monkeypatch.setattr("secureforge.redteam.evaluate", lambda *args, **kwargs: [])
+
+        result = run_analyzer_check(CODE, RedteamAnalyzer.CODEQL)
+
+        assert result["success"] is False
+        assert result["exit_code"] == 0
+        assert result["findings"] == []
+
+    def test_analyzer_error_is_retryable(self, monkeypatch):
+        def _fail(*args, **kwargs):
+            raise RuntimeError("missing binary")
+
+        monkeypatch.setattr("secureforge.redteam.evaluate", _fail)
+        result = run_analyzer_check(CODE, RedteamAnalyzer.CODEQL)
+
+        assert result["exit_code"] is None
+        assert "codeql analysis failed" in result["error"]
 
 
 def _make_input(path):
@@ -175,6 +213,43 @@ class TestRunRedteamScenarios:
         assert len(seen) == 2
         assert any(vulnerabilities == [] for _, vulnerabilities in seen)
 
+    def test_cross_analyzer_does_not_require_kimi(self, tmp_path, monkeypatch):
+        input_path = tmp_path / "generated.jsonl"
+        output_path = tmp_path / "redteam.jsonl"
+        _make_input(input_path)
+
+        def _unexpected_kimi_lookup():
+            pytest.fail("Kimi should not be resolved for a cross-analyzer check")
+
+        findings = [{"rule": "py/command-injection", "analyzer": "semgrep"}]
+        monkeypatch.setattr(
+            "secureforge.cli.redteam.resolve_kimi_binary", _unexpected_kimi_lookup
+        )
+        monkeypatch.setattr(
+            "secureforge.cli.redteam.run_analyzer_check",
+            lambda *args, **kwargs: {
+                "attempted": True,
+                "analyzer": "semgrep",
+                "success": True,
+                "exit_code": 1,
+                "findings": findings,
+                "error": None,
+            },
+        )
+
+        cfg = RedteamConfig(
+            input_file=str(input_path),
+            output=str(output_path),
+            analyzer=RedteamAnalyzer.SEMGREP,
+        )
+        run_redteam_scenarios(cfg)
+
+        with jsonlines.open(output_path) as reader:
+            records = [record for record in reader if record.get("record_type") != "config"]
+        result = records[0]["scenarios"][0]["rollouts"][0]["redteam"]
+        assert result["analyzer"] == "semgrep"
+        assert result["findings"] == findings
+
     def test_load_completed_rollouts(self, tmp_path):
         output_path = tmp_path / "out.jsonl"
         with jsonlines.open(output_path, mode="w") as writer:
@@ -185,6 +260,7 @@ class TestRunRedteamScenarios:
             ]}]})
         # Only the attempt that actually executed run.sh counts as completed
         assert load_completed_rollouts(output_path) == {_rollout_key(78, "s1", "a = 1")}
+        assert _rollout_key(78, "s1", "a = 1", RedteamAnalyzer.SEMGREP) not in load_completed_rollouts(output_path)
 
     def test_fail_fast_without_kimi(self, tmp_path, monkeypatch):
         monkeypatch.setattr("secureforge.cli.redteam.resolve_kimi_binary", lambda: None)
@@ -272,7 +348,9 @@ def test_sweep_redteam_all_samples_override(monkeypatch, tmp_path):
         workers=1,
         input_file=None,
         output_dir=str(tmp_path),
+        analyzer=RedteamAnalyzer.SEMGREP,
         all_samples=True,
     )
 
     assert dispatched[0][0].all_samples is True
+    assert dispatched[0][0].analyzer is RedteamAnalyzer.SEMGREP

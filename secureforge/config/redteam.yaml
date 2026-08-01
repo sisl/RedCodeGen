@@ -2,6 +2,7 @@ verbose: true
 input_file: ""
 output: ""
 workers: 4
+analyzer: kimi
 kimi_model: null
 agent_timeout: 600
 run_timeout: 60

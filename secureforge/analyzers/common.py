@@ -12,6 +12,14 @@ class AnalysisTool(Enum):
     ALL = "all"
 
 
+class RedteamAnalyzer(Enum):
+    KIMI = "kimi"
+    CODEQL = AnalysisTool.CODEQL.value
+    CODEX_SECURITY = AnalysisTool.CODEX_SECURITY.value
+    SEMGREP = AnalysisTool.SEMGREP.value
+    ALL = AnalysisTool.ALL.value
+
+
 # SARIF defaultConfiguration.level → representative CVSS-range numeric severity.
 # Used as fallback when properties.security-severity (CodeQL) is absent (Semgrep).
 _SARIF_LEVEL_SEVERITY: dict[str, float] = {

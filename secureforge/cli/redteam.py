@@ -14,25 +14,32 @@ from secureforge.config import RedteamConfig
 from secureforge.cli.app import app
 from secureforge.cli.common import is_data_record
 from secureforge.cli.utils import configure_logging, append_to_jsonl, get_environment_info
-from secureforge.redteam import run_redteam, resolve_kimi_binary
+from secureforge.analyzers.common import RedteamAnalyzer
+from secureforge.redteam import run_analyzer_check, run_redteam, resolve_kimi_binary
 
 
-def _rollout_key(cwe_id: int, scenario: str, code: str) -> Tuple[int, str, str]:
+def _rollout_key(
+    cwe_id: int,
+    scenario: str,
+    code: str,
+    analyzer: RedteamAnalyzer = RedteamAnalyzer.KIMI,
+) -> Tuple[int, str, str, str]:
     """Stable idempotency key for one selected sample (rollout)."""
     code_hash = hashlib.sha256(code.encode("utf-8")).hexdigest()[:16]
-    return (cwe_id, scenario, code_hash)
+    return (cwe_id, scenario, code_hash, analyzer.value)
 
 
-def load_completed_rollouts(output_path: Path) -> Set[Tuple[int, str, str]]:
+def load_completed_rollouts(output_path: Path) -> Set[Tuple[int, str, str, str]]:
     """Load keys of samples (rollouts) already red-teamed, for per-output idempotency.
 
     Args:
         output_path: Path to the output JSONL file
 
     Returns:
-        Set of (cwe_id, scenario, code_hash) tuples already present in the output file
+        Set of (cwe_id, scenario, code_hash, analyzer) tuples already present
+        in the output file.
     """
-    completed: Set[Tuple[int, str, str]] = set()
+    completed: Set[Tuple[int, str, str, str]] = set()
 
     if not output_path.exists():
         return completed
@@ -51,7 +58,12 @@ def load_completed_rollouts(output_path: Path) -> Set[Tuple[int, str, str]]:
                         if rollout.get("redteam", {}).get("exit_code") is None:
                             continue
                         if cwe_id is not None and scenario is not None and "code" in rollout:
-                            completed.add(_rollout_key(cwe_id, scenario, rollout["code"]))
+                            analyzer = RedteamAnalyzer(
+                                rollout.get("redteam", {}).get("analyzer", "kimi")
+                            )
+                            completed.add(
+                                _rollout_key(cwe_id, scenario, rollout["code"], analyzer)
+                            )
         logger.info(f"Found {len(completed)} already-completed samples in {output_path}")
     except Exception as e:
         logger.warning(f"Could not read existing output file: {e}")
@@ -101,12 +113,17 @@ def run_redteam_scenarios(config: RedteamConfig):
         logger.error(f"Input file does not exist: {input_path}")
         raise typer.Exit(code=1)
 
-    # Fail fast if the kimi agent CLI is unavailable, before burning attempts
-    kimi_bin = resolve_kimi_binary()
-    if kimi_bin is None:
-        logger.error("kimi CLI not found on PATH or at ~/.kimi-code/bin/kimi; cannot red-team without it")
-        raise typer.Exit(code=1)
-    logger.info(f"Using kimi agent binary: {kimi_bin}")
+    analyzer = RedteamAnalyzer(config.analyzer)
+    kimi_bin = None
+    if analyzer is RedteamAnalyzer.KIMI:
+        # Fail fast before burning attempts when Kimi is the selected backend.
+        kimi_bin = resolve_kimi_binary()
+        if kimi_bin is None:
+            logger.error("kimi CLI not found on PATH or at ~/.kimi-code/bin/kimi; cannot red-team without it")
+            raise typer.Exit(code=1)
+        logger.info(f"Using kimi agent binary: {kimi_bin}")
+    else:
+        logger.info(f"Using {analyzer.value} for cross-analyzer checks")
 
     # Derive output path from input when not explicitly given
     if config.output:
@@ -141,10 +158,12 @@ def run_redteam_scenarios(config: RedteamConfig):
     # Load already-completed (cwe_id, scenario, code_hash) keys for per-output idempotency
     completed = load_completed_rollouts(output_path)
 
-    model_config = {
-        "agent": "kimi -p",
-        "kimi_model": config.kimi_model or "default",
-    }
+    model_config = {"analyzer": analyzer.value}
+    if analyzer is RedteamAnalyzer.KIMI:
+        model_config.update({
+            "agent": "kimi -p",
+            "kimi_model": config.kimi_model or "default",
+        })
 
     # Enumerate eligible samples as (rec_idx, s_idx, r_idx), skipping completed ones.
     all_tasks: list[tuple[int, int, int]] = []
@@ -154,7 +173,7 @@ def run_redteam_scenarios(config: RedteamConfig):
             scenario = scenario_group["scenario"]
             for r_idx, rollout in enumerate(scenario_group.get("rollouts", [])):
                 if config.all_samples or rollout.get("vulnerabilities"):
-                    if _rollout_key(cwe_id, scenario, rollout["code"]) not in completed:
+                    if _rollout_key(cwe_id, scenario, rollout["code"], analyzer) not in completed:
                         all_tasks.append((rec_idx, s_idx, r_idx))
 
     total_remaining = len(all_tasks)
@@ -211,17 +230,22 @@ def run_redteam_scenarios(config: RedteamConfig):
 
             def _process_rollout(rollout):
                 vulnerabilities = rollout.get("vulnerabilities") or []
-                redteam_result = run_redteam(
-                    rollout["code"],
-                    tests,
-                    scenario,
-                    vulnerabilities,
-                    language=config.language,
-                    kimi_model=config.kimi_model,
-                    agent_timeout=config.agent_timeout,
-                    run_timeout=config.run_timeout,
-                    kimi_bin=kimi_bin,
-                )
+                if analyzer is RedteamAnalyzer.KIMI:
+                    redteam_result = run_redteam(
+                        rollout["code"],
+                        tests,
+                        scenario,
+                        vulnerabilities,
+                        language=config.language,
+                        kimi_model=config.kimi_model,
+                        agent_timeout=config.agent_timeout,
+                        run_timeout=config.run_timeout,
+                        kimi_bin=kimi_bin,
+                    )
+                else:
+                    redteam_result = run_analyzer_check(
+                        rollout["code"], analyzer, config.language
+                    )
                 return {
                     "code": rollout["code"],
                     "passes_tests": rollout.get("passes_tests"),
@@ -293,7 +317,8 @@ def redteam(
     ctx: typer.Context,
     input_file: Path = typer.Option(..., "--input", "-i", help="Input JSONL file from the generate command"),
     output: Path | None = typer.Option(None, "--output", "-o", help="Output JSONL file (default: ./output/redteam_<input name>)"),
-    workers: int = typer.Option(4, "--workers", "-w", help="Number of parallel red-team agents per scenario"),
+    workers: int = typer.Option(4, "--workers", "-w", help="Number of parallel validation workers per scenario"),
+    analyzer: RedteamAnalyzer = typer.Option(RedteamAnalyzer.KIMI.value, "--analyzer", "-a", help="Validation backend: Kimi exploit validation or a SecureForge analyzer for cross-analyzer checks"),
     kimi_model: str | None = typer.Option(None, "--kimi-model", help="Model alias for the kimi agent (default: kimi's configured default)"),
     agent_timeout: int = typer.Option(600, "--agent-timeout", help="Max seconds for each kimi agent run"),
     run_timeout: int = typer.Option(60, "--run-timeout", help="Max seconds for each run.sh execution"),
@@ -306,7 +331,8 @@ def redteam(
 
     By default, processes every rollout with analyzer findings. Use
     --all-samples to process every rollout, including samples without findings.
-    Each selected rollout runs a headless `kimi -p` agent in the test environment.
+    Kimi performs exploit validation; other backends perform cross-analyzer
+    checks and store their findings in the red-team result.
     """
     ctx.ensure_object(dict)
     language = ctx.obj.get("language", "python")
@@ -315,6 +341,7 @@ def redteam(
         input_file=str(input_file),
         output=str(output) if output else "",
         workers=workers,
+        analyzer=analyzer,
         kimi_model=kimi_model,
         agent_timeout=agent_timeout,
         run_timeout=run_timeout,

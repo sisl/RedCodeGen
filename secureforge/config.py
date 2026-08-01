@@ -1,6 +1,6 @@
 from pydantic import BaseModel, field_validator
 
-from secureforge.analyzers.common import AnalysisTool
+from secureforge.analyzers.common import AnalysisTool, RedteamAnalyzer
 
 
 class BaseConfig(BaseModel):
@@ -202,6 +202,7 @@ class RedteamConfig(BaseConfig):
     input_file: str = ""
     output: str = ""
     workers: int = 4
+    analyzer: RedteamAnalyzer = RedteamAnalyzer.KIMI
     kimi_model: str | None = None
     agent_timeout: int = 600
     run_timeout: int = 60

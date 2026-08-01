@@ -9,6 +9,7 @@ from pathlib import Path
 from itertools import product
 
 from secureforge.config import GenerateConfig, IterateConfig, RegenerateConfig, AmplifyConfig, OptimizeConfig, RedteamConfig
+from secureforge.analyzers.common import RedteamAnalyzer
 from secureforge.cli.app import app
 from secureforge.cli.utils import configure_logging
 from secureforge.cli.generate import generate_scenarios
@@ -373,6 +374,7 @@ def sweep_redteam(
     ),
     input_file: str | None = typer.Option(None, "--input", "-i", help="Input JSONL file from generate command (overrides per-run input_file)"),
     output_dir: str = typer.Option("./output/sweeps/", "--output-dir", "-o", help="Output directory for results"),
+    analyzer: RedteamAnalyzer | None = typer.Option(None, "--analyzer", "-a", help="Override the validation backend for every sweep run"),
     all_samples: bool = typer.Option(False, "--all-samples", help="Red-team all rollouts instead of only analyzer-flagged rollouts; --limit samples IID from this pool"),
 ):
     """Run a sweep of red-team jobs across different generate outputs / agent models."""
@@ -384,6 +386,8 @@ def sweep_redteam(
         updates = {}
         if input_file:
             updates["input_file"] = input_file
+        if analyzer is not None:
+            updates["analyzer"] = analyzer
         if all_samples:
             updates["all_samples"] = True
         if not cfg.output and updates.get("input_file", cfg.input_file):
