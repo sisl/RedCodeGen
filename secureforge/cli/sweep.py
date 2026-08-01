@@ -373,6 +373,7 @@ def sweep_redteam(
     ),
     input_file: str | None = typer.Option(None, "--input", "-i", help="Input JSONL file from generate command (overrides per-run input_file)"),
     output_dir: str = typer.Option("./output/sweeps/", "--output-dir", "-o", help="Output directory for results"),
+    all_samples: bool = typer.Option(False, "--all-samples", help="Red-team all rollouts instead of only analyzer-flagged rollouts; --limit samples IID from this pool"),
 ):
     """Run a sweep of red-team jobs across different generate outputs / agent models."""
     configure_logging(verbose=False)
@@ -383,6 +384,8 @@ def sweep_redteam(
         updates = {}
         if input_file:
             updates["input_file"] = input_file
+        if all_samples:
+            updates["all_samples"] = True
         if not cfg.output and updates.get("input_file", cfg.input_file):
             input_name = Path(updates.get("input_file", cfg.input_file)).name
             updates["output"] = str(Path(output_dir) / f"redteam_{input_name}")

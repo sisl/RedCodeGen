@@ -205,6 +205,7 @@ class RedteamConfig(BaseConfig):
     kimi_model: str | None = None
     agent_timeout: int = 600
     run_timeout: int = 60
+    all_samples: bool = False
     limit: int | None = None
     seed: int = 0
     language: str = "python"

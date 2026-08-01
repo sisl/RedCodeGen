@@ -18,7 +18,7 @@ from secureforge.redteam import run_redteam, resolve_kimi_binary
 
 
 def _rollout_key(cwe_id: int, scenario: str, code: str) -> Tuple[int, str, str]:
-    """Stable idempotency key for one flagged sample (rollout)."""
+    """Stable idempotency key for one selected sample (rollout)."""
     code_hash = hashlib.sha256(code.encode("utf-8")).hexdigest()[:16]
     return (cwe_id, scenario, code_hash)
 
@@ -70,8 +70,8 @@ def build_record(
 ) -> Dict[str, Any]:
     """Build a record for JSONL output in the generate-style nested format.
 
-    Contains exactly one scenario, and only the rollouts the static analyzer
-    flagged, each annotated with its red-team result.
+    Contains exactly one scenario and the selected rollouts, each annotated
+    with its red-team result.
     """
     record = {
         "cwe_id": cwe_id,
@@ -146,24 +146,25 @@ def run_redteam_scenarios(config: RedteamConfig):
         "kimi_model": config.kimi_model or "default",
     }
 
-    # Enumerate all flagged samples (rollouts) as (rec_idx, s_idx, r_idx), skipping completed ones
+    # Enumerate eligible samples as (rec_idx, s_idx, r_idx), skipping completed ones.
     all_tasks: list[tuple[int, int, int]] = []
     for rec_idx, record in enumerate(input_records):
         cwe_id = record["cwe_id"]
         for s_idx, scenario_group in enumerate(record.get("scenarios", [])):
             scenario = scenario_group["scenario"]
             for r_idx, rollout in enumerate(scenario_group.get("rollouts", [])):
-                if rollout.get("vulnerabilities"):
+                if config.all_samples or rollout.get("vulnerabilities"):
                     if _rollout_key(cwe_id, scenario, rollout["code"]) not in completed:
                         all_tasks.append((rec_idx, s_idx, r_idx))
 
     total_remaining = len(all_tasks)
-    logger.info(f"Found {total_remaining} flagged sample(s) remaining ({len(completed)} already red-teamed)")
+    pool = "sample(s)" if config.all_samples else "analyzer-flagged sample(s)"
+    logger.info(f"Found {total_remaining} {pool} remaining ({len(completed)} already red-teamed)")
 
     # IID-sample down to --limit if requested (uniform draws without replacement)
     if config.limit is not None and len(all_tasks) > config.limit:
         all_tasks = random.Random(config.seed).sample(all_tasks, config.limit)
-        logger.info(f"IID-sampled {config.limit} of {total_remaining} flagged sample(s) (seed={config.seed})")
+        logger.info(f"IID-sampled {config.limit} of {total_remaining} {pool} (seed={config.seed})")
 
     if not all_tasks:
         logger.info("Nothing to do!")
@@ -176,7 +177,7 @@ def run_redteam_scenarios(config: RedteamConfig):
 
     # Track statistics
     total_scenarios = 0
-    total_flagged = 0
+    total_selected = 0
     total_succeeded = 0
     total_errors = 0
     cwe_stats: Dict[int, Dict[str, int]] = {}
@@ -188,7 +189,7 @@ def run_redteam_scenarios(config: RedteamConfig):
         scenarios = record.get("scenarios", [])
         logger.info(f"[{rec_idx + 1}/{len(input_records)}] Processing CWE-{cwe_id} ({len(scenarios)} scenario(s))...")
 
-        cwe_flagged = 0
+        cwe_selected = 0
         cwe_succeeded = 0
         cwe_errors = 0
 
@@ -200,20 +201,21 @@ def run_redteam_scenarios(config: RedteamConfig):
             scenario = scenario_group["scenario"]
             tests = scenario_group.get("tests")
             rollouts_in = scenario_group["rollouts"]
-            flagged = [rollouts_in[r_idx] for r_idx in r_indices]
+            selected_rollouts = [rollouts_in[r_idx] for r_idx in r_indices]
 
             logger.info(
                 f"  Scenario {s_idx + 1}/{len(scenarios)}: "
                 f"{scenario[:80]}{'...' if len(scenario) > 80 else ''} "
-                f"({len(flagged)} flagged sample(s))"
+                f"({len(selected_rollouts)} selected sample(s))"
             )
 
             def _process_rollout(rollout):
+                vulnerabilities = rollout.get("vulnerabilities") or []
                 redteam_result = run_redteam(
                     rollout["code"],
                     tests,
                     scenario,
-                    rollout["vulnerabilities"],
+                    vulnerabilities,
                     language=config.language,
                     kimi_model=config.kimi_model,
                     agent_timeout=config.agent_timeout,
@@ -223,13 +225,13 @@ def run_redteam_scenarios(config: RedteamConfig):
                 return {
                     "code": rollout["code"],
                     "passes_tests": rollout.get("passes_tests"),
-                    "vulnerabilities": rollout["vulnerabilities"],
+                    "vulnerabilities": vulnerabilities,
                     "redteam": redteam_result,
                 }
 
             try:
-                with ThreadPoolExecutor(max_workers=min(config.workers, len(flagged))) as executor:
-                    rollouts = list(executor.map(_process_rollout, flagged))
+                with ThreadPoolExecutor(max_workers=min(config.workers, len(selected_rollouts))) as executor:
+                    rollouts = list(executor.map(_process_rollout, selected_rollouts))
             except Exception as e:
                 logger.error(f"    ✗ Scenario {s_idx + 1}/{len(scenarios)} failed: {e}")
                 continue
@@ -247,43 +249,43 @@ def run_redteam_scenarios(config: RedteamConfig):
 
             n_success = sum(1 for r in rollouts if r["redteam"]["success"])
             n_errors = sum(1 for r in rollouts if r["redteam"].get("error"))
-            cwe_flagged += len(rollouts)
+            cwe_selected += len(rollouts)
             cwe_succeeded += n_success
             cwe_errors += n_errors
             total_scenarios += 1
-            logger.info(f"    Red team succeeded on {n_success}/{len(rollouts)} flagged rollout(s) ({n_errors} error(s))")
+            logger.info(f"    Red team succeeded on {n_success}/{len(rollouts)} selected rollout(s) ({n_errors} error(s))")
 
-        if cwe_flagged > 0:
-            total_flagged += cwe_flagged
+        if cwe_selected > 0:
+            total_selected += cwe_selected
             total_succeeded += cwe_succeeded
             total_errors += cwe_errors
             cwe_stats[cwe_id] = {
-                "flagged": cwe_flagged,
+                "selected": cwe_selected,
                 "succeeded": cwe_succeeded,
                 "errors": cwe_errors,
             }
-            rate = cwe_succeeded / cwe_flagged * 100
-            logger.info(f"✓ Completed CWE-{cwe_id}: red team succeeded on {cwe_succeeded}/{cwe_flagged} ({rate:.2f}%, {cwe_errors} error(s))")
+            rate = cwe_succeeded / cwe_selected * 100
+            logger.info(f"✓ Completed CWE-{cwe_id}: red team succeeded on {cwe_succeeded}/{cwe_selected} ({rate:.2f}%, {cwe_errors} error(s))")
 
     # Final summary
     logger.info(f"Completed! Results saved to {output_path}")
-    logger.info(f"Total scenarios red-teamed: {total_scenarios}, flagged rollouts: {total_flagged}, errors: {total_errors}")
+    logger.info(f"Total scenarios red-teamed: {total_scenarios}, selected rollouts: {total_selected}, errors: {total_errors}")
 
-    if total_flagged > 0:
-        rate = total_succeeded / total_flagged * 100
-        logger.info(f"Overall red-team success rate: {total_succeeded}/{total_flagged} ({rate:.2f}%)")
+    if total_selected > 0:
+        rate = total_succeeded / total_selected * 100
+        logger.info(f"Overall red-team success rate: {total_succeeded}/{total_selected} ({rate:.2f}%)")
     logger.info("")
 
     # Per-CWE table sorted by decreasing red-team success rate
     sorted_cwes = sorted(
         cwe_stats.items(),
-        key=lambda item: item[1]["succeeded"] / item[1]["flagged"] if item[1]["flagged"] > 0 else 0,
+        key=lambda item: item[1]["succeeded"] / item[1]["selected"] if item[1]["selected"] > 0 else 0,
         reverse=True,
     )
     logger.info("Per CWE (sorted by red-team success rate):")
     for cwe_id, c in sorted_cwes:
-        rate = (c["succeeded"] / c["flagged"] * 100) if c["flagged"] > 0 else 0
-        logger.info(f"  CWE-{cwe_id:3d}: red team {c['succeeded']:2d}/{c['flagged']:<3d} ({rate:5.2f}%), {c['errors']} error(s)")
+        rate = (c["succeeded"] / c["selected"] * 100) if c["selected"] > 0 else 0
+        logger.info(f"  CWE-{cwe_id:3d}: red team {c['succeeded']:2d}/{c['selected']:<3d} ({rate:5.2f}%), {c['errors']} error(s)")
 
 
 @app.command()
@@ -295,18 +297,16 @@ def redteam(
     kimi_model: str | None = typer.Option(None, "--kimi-model", help="Model alias for the kimi agent (default: kimi's configured default)"),
     agent_timeout: int = typer.Option(600, "--agent-timeout", help="Max seconds for each kimi agent run"),
     run_timeout: int = typer.Option(60, "--run-timeout", help="Max seconds for each run.sh execution"),
-    limit: int | None = typer.Option(None, "--limit", "-l", help="Red-team at most this many flagged samples, IID-sampled uniformly from the input"),
+    all_samples: bool = typer.Option(False, "--all-samples", help="Red-team all rollouts instead of only analyzer-flagged rollouts; --limit samples IID from this pool"),
+    limit: int | None = typer.Option(None, "--limit", "-l", help="Red-team at most this many eligible samples, IID-sampled uniformly from the input"),
     seed: int = typer.Option(0, "--seed", help="Random seed for --limit IID sampling"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose output"),
 ):
-    """Actively red-team code that the static analyzer flagged.
+    """Actively red-team generated code.
 
-    Takes output from the 'generate' command and, for every rollout with static
-    analyzer findings, spins up a headless `kimi -p` agent in the test
-    environment. The agent builds a minimum working example (./run.sh) that
-    exercises the exact generated code and demonstrates the unintended behavior,
-    exiting 1 on success and 0 otherwise. Output mirrors the generate format,
-    containing only static analyzer failures annotated with red-team results.
+    By default, processes every rollout with analyzer findings. Use
+    --all-samples to process every rollout, including samples without findings.
+    Each selected rollout runs a headless `kimi -p` agent in the test environment.
     """
     ctx.ensure_object(dict)
     language = ctx.obj.get("language", "python")
@@ -318,6 +318,7 @@ def redteam(
         kimi_model=kimi_model,
         agent_timeout=agent_timeout,
         run_timeout=run_timeout,
+        all_samples=all_samples,
         limit=limit,
         seed=seed,
         language=language,

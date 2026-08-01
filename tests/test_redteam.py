@@ -7,6 +7,7 @@ import typer
 from secureforge.config import RedteamConfig
 from secureforge.redteam import build_redteam_prompt, run_redteam, RUN_SCRIPT
 from secureforge.cli.redteam import _rollout_key, load_completed_rollouts, run_redteam_scenarios
+from secureforge.cli.sweep import sweep_redteam
 
 
 VULNS = [{"rule": "py/command-injection", "line": 2, "message": "os.system with user input", "analyzer": "semgrep"}]
@@ -45,6 +46,11 @@ class TestBuildRedteamPrompt:
     def test_tests_reference(self):
         prompt = build_redteam_prompt(CODE, "def test_ping(): pass", SCENARIO, VULNS)
         assert "test_solution.py" in prompt
+
+    def test_without_findings_searches_for_an_issue(self):
+        prompt = build_redteam_prompt(CODE, None, SCENARIO, [])
+        assert "No analyzer findings were supplied" in prompt
+        assert "identify a security issue" in prompt
 
 
 class TestRunRedteam:
@@ -89,7 +95,7 @@ def _make_input(path):
                 "tests": "def test_ping(): pass",
                 "rollouts": [
                     {"code": CODE, "passes_tests": True, "vulnerabilities": VULNS},
-                    {"code": "def ping(host):\n    return host\n", "passes_tests": True, "vulnerabilities": []},
+                    {"code": "def ping(host):\n    return host\n", "passes_tests": True},
                 ],
             }
         ],
@@ -143,6 +149,31 @@ class TestRunRedteamScenarios:
         assert calls[0] == 1
         with jsonlines.open(output_path) as reader:
             assert len(list(reader)) == len(records)
+
+    def test_all_samples_includes_unflagged_rollouts(self, tmp_path, monkeypatch):
+        input_path = tmp_path / "generated.jsonl"
+        output_path = tmp_path / "redteam.jsonl"
+        _make_input(input_path)
+
+        seen = []
+        def _stub(code, tests, scenario, vulnerabilities, **kwargs):
+            seen.append((code, vulnerabilities))
+            return {
+                "attempted": True, "success": True, "exit_code": 1,
+                "run_script": "#!/bin/bash\nexit 1\n", "stdout": "", "stderr": "",
+                "agent_log": "", "error": None,
+            }
+        monkeypatch.setattr("secureforge.cli.redteam.run_redteam", _stub)
+
+        cfg = RedteamConfig(
+            input_file=str(input_path),
+            output=str(output_path),
+            all_samples=True,
+        )
+        run_redteam_scenarios(cfg)
+
+        assert len(seen) == 2
+        assert any(vulnerabilities == [] for _, vulnerabilities in seen)
 
     def test_load_completed_rollouts(self, tmp_path):
         output_path = tmp_path / "out.jsonl"
@@ -218,3 +249,30 @@ class TestRunRedteamScenarios:
         calls.clear()
         run_redteam_scenarios(cfg)
         assert len(calls) == 0
+
+
+def test_sweep_redteam_all_samples_override(monkeypatch, tmp_path):
+    base_config = RedteamConfig(input_file="input.jsonl")
+    dispatched = []
+
+    def _build_tasks(config_name, overrides, runs_config, config_class, post_build):
+        assert config_class is RedteamConfig
+        return [(post_build(base_config, "test-run"), "test-run")]
+
+    def _dispatch(tasks, workers, worker_fn, label):
+        dispatched.extend(tasks)
+
+    monkeypatch.setattr("secureforge.cli.sweep._build_sweep_tasks", _build_tasks)
+    monkeypatch.setattr("secureforge.cli.sweep._dispatch_sweep_tasks", _dispatch)
+
+    sweep_redteam(
+        config_name="redteam",
+        overrides=None,
+        runs_config=None,
+        workers=1,
+        input_file=None,
+        output_dir=str(tmp_path),
+        all_samples=True,
+    )
+
+    assert dispatched[0][0].all_samples is True

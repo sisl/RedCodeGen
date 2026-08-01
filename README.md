@@ -319,7 +319,7 @@ sf propose -o proposals.jsonl -b Qwen/... -v py/xss --model openai/gpt-4o # swit
 
 ### Quick Start
 
-After generating code with the `generate` command, you can use `redteam` to actively red-team everything the static analyzer flagged. For each flagged rollout, it spins up a headless [Kimi Code](https://moonshotai.github.io/kimi-code/) agent (`kimi -p`) inside the same isolated test environment used for test execution (a temp directory with the generated code and a uv environment holding exactly its imports). The agent must produce a minimum working example `./run.sh` that exercises the exact generated code (plus any amount of support code) and demonstrates the unintended behavior, exiting 1 if it succeeds and 0 otherwise.
+After generating code with the `generate` command, you can use `redteam` to actively red-team everything the analyzer flagged. Pass `--all-samples` to instead use every rollout as the candidate pool; samples without analyzer findings receive an open-ended security review. For each selected rollout, SecureForge spins up a headless [Kimi Code](https://moonshotai.github.io/kimi-code/) agent (`kimi -p`) inside the same isolated test environment used for test execution (a temp directory with the generated code and a uv environment holding exactly its imports). The agent must produce a minimum working example `./run.sh` that exercises the exact generated code (plus any amount of support code) and demonstrates the unintended behavior, exiting 1 if it succeeds and 0 otherwise.
 
 The most basic usage:
 
@@ -327,7 +327,7 @@ The most basic usage:
 sf redteam -i results.jsonl -o redteam.jsonl
 ```
 
-The output mirrors the `generate` format (nested scenarios/rollouts), but contains only the rollouts the static analyzer flagged, each annotated with a `redteam` field holding the agent's `run.sh`, its exit code, and whether the red team succeeded.
+The output mirrors the `generate` format (nested scenarios/rollouts), but contains only the selected rollouts, each annotated with a `redteam` field holding the agent's `run.sh`, its exit code, and whether the red team succeeded.
 
 Importantly, running the above command multiple times (to the same output file) will resume from where you left off, skipping scenarios that have already been processed.
 
@@ -340,7 +340,9 @@ sf redteam -i results.jsonl -w 8                                # more parallel 
 sf redteam -i results.jsonl --kimi-model some-alias            # switch the red-team agent model
 sf redteam -i results.jsonl --agent-timeout 900                # more time per agent run
 sf redteam -i results.jsonl --limit 50 --seed 0                # IID-sample 50 flagged samples
+sf redteam -i results.jsonl --all-samples --limit 50 --seed 0  # IID-sample 50 from every rollout
 sf sweep redteam -r config/sweeps/redteam_runs.yaml            # sweep over generate outputs
+sf sweep redteam -r config/sweeps/redteam_runs.yaml --all-samples # use every rollout as the sweep pool
 ```
 
 ## Acknowledgements

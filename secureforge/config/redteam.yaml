@@ -5,6 +5,7 @@ workers: 4
 kimi_model: null
 agent_timeout: 600
 run_timeout: 60
+all_samples: false
 limit: null
 seed: 0
 language: python
