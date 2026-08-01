@@ -1,7 +1,7 @@
 # Red-team cross-analyzer sweep — GPT-5.4, 100 IID samples
 # ---------------------------------------------------------
 # Runs Kimi, Semgrep, CodeQL, and Codex Security over the same seeded sample
-# from all rollouts in the GPT-5.4 GEPA generation output. Results are kept in
+# from all rollouts in the standard GPT-5.4 tunable sweep output. Results are kept in
 # separate files under ./output/sweeps/redteam_cross_analyzers/.
 #
 # Run with:
@@ -10,7 +10,7 @@
 runs:
   - name: redteam-kimi
     overrides:
-      - input_file=./output/sweeps/gepa/generated_scenarios_gpt_5.4_t1p0_n10_k10.jsonl
+      - input_file=./output/sweeps/generated_scenarios_gpt_5.4_t1p0_n10_k10.jsonl
       - output=./output/sweeps/redteam_cross_analyzers/kimi.jsonl
       - analyzer=kimi
       - all_samples=true
@@ -19,7 +19,7 @@ runs:
 
   - name: redteam-semgrep
     overrides:
-      - input_file=./output/sweeps/gepa/generated_scenarios_gpt_5.4_t1p0_n10_k10.jsonl
+      - input_file=./output/sweeps/generated_scenarios_gpt_5.4_t1p0_n10_k10.jsonl
       - output=./output/sweeps/redteam_cross_analyzers/semgrep.jsonl
       - analyzer=semgrep
       - all_samples=true
@@ -28,7 +28,7 @@ runs:
 
   - name: redteam-codeql
     overrides:
-      - input_file=./output/sweeps/gepa/generated_scenarios_gpt_5.4_t1p0_n10_k10.jsonl
+      - input_file=./output/sweeps/generated_scenarios_gpt_5.4_t1p0_n10_k10.jsonl
       - output=./output/sweeps/redteam_cross_analyzers/codeql.jsonl
       - analyzer=codeql
       - all_samples=true
@@ -37,7 +37,7 @@ runs:
 
   - name: redteam-gptsecurity
     overrides:
-      - input_file=./output/sweeps/gepa/generated_scenarios_gpt_5.4_t1p0_n10_k10.jsonl
+      - input_file=./output/sweeps/generated_scenarios_gpt_5.4_t1p0_n10_k10.jsonl
       - output=./output/sweeps/redteam_cross_analyzers/gptsecurity.jsonl
       - analyzer=codex-security
       - all_samples=true
