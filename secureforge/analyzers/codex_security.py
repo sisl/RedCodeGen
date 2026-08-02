@@ -52,7 +52,7 @@ def _run_codex_security_analysis(
 
     try:
         logger.debug(f"Running Codex Security analysis on {source_root}")
-        subprocess.run(
+        scan_result = subprocess.run(
             [
                 *command,
                 "scan",
@@ -60,10 +60,19 @@ def _run_codex_security_analysis(
                 "--output-dir",
                 str(scan_dir),
             ],
-            check=True,
+            # Exit 2 can mean that the scan completed with incomplete
+            # coverage. Such scans still contain an exportable result bundle,
+            # so let `export` below decide whether the bundle is valid.
+            check=False,
             capture_output=True,
             text=True,
         )
+        if scan_result.returncode != 0:
+            logger.warning(
+                "Codex Security scan exited with status {}; attempting to "
+                "export its completed result bundle",
+                scan_result.returncode,
+            )
 
         subprocess.run(
             [

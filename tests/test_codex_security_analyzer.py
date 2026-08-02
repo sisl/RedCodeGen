@@ -85,6 +85,7 @@ def test_run_codex_security_scans_exports_and_parses_sarif(tmp_path: Path):
         "secureforge.analyzers.codex_security._parse_sarif",
         return_value=findings,
     ) as parse_sarif:
+        run.return_value.returncode = 0
         assert _run_codex_security_analysis(source_root, workdir) == findings
 
     scan_dir = Path(run.call_args_list[0].args[0][-1])
@@ -98,7 +99,7 @@ def test_run_codex_security_scans_exports_and_parses_sarif(tmp_path: Path):
                 "--output-dir",
                 str(scan_dir),
             ],
-            check=True,
+            check=False,
             capture_output=True,
             text=True,
         ),
@@ -121,6 +122,31 @@ def test_run_codex_security_scans_exports_and_parses_sarif(tmp_path: Path):
     ]
     parse_sarif.assert_called_once_with(sarif_path, AnalysisTool.CODEX_SECURITY)
     assert not scan_dir.exists()
+
+
+def test_run_codex_security_exports_incomplete_coverage_scan(tmp_path: Path):
+    source_root = tmp_path / "source"
+    workdir = tmp_path / "work"
+    source_root.mkdir()
+
+    scan_result = subprocess.CompletedProcess("scan", 2, "", "incomplete coverage")
+    export_result = subprocess.CompletedProcess("export", 0, "", "")
+
+    with patch(
+        "secureforge.analyzers.codex_security._find_codex_security",
+        return_value=["codex-security"],
+    ), patch(
+        "secureforge.analyzers.codex_security.subprocess.run",
+        side_effect=[scan_result, export_result],
+    ) as run, patch(
+        "secureforge.analyzers.codex_security._parse_sarif",
+        return_value=[],
+    ):
+        assert _run_codex_security_analysis(source_root, workdir) == []
+
+    assert len(run.call_args_list) == 2
+    assert run.call_args_list[0].kwargs["check"] is False
+    assert run.call_args_list[1].kwargs["check"] is True
 
 
 def test_evaluate_dispatches_to_codex_security(tmp_path: Path):

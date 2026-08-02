@@ -309,19 +309,13 @@ class TestRunRedteamScenarios:
         first_batch = set(calls)
         assert first_batch < {f"c1_{i}" for i in range(3)} | {f"c2_{i}" for i in range(3)}
 
-        # Deterministic for the same seed on the same remaining pool
+        # Deterministic for the same seed on the full eligible population
         calls.clear()
         cfg2 = RedteamConfig(input_file=str(input_path), output=str(tmp_path / "redteam2.jsonl"), limit=4, seed=0)
         run_redteam_scenarios(cfg2)
         assert set(calls) == first_batch
 
-        # Resuming red-teams only the 2 remaining samples
-        calls.clear()
-        run_redteam_scenarios(cfg)
-        assert len(calls) == 2
-        assert set(calls).isdisjoint(first_batch)
-
-        # Nothing left to do
+        # Resuming does not replace completed cohort members with new samples.
         calls.clear()
         run_redteam_scenarios(cfg)
         assert len(calls) == 0

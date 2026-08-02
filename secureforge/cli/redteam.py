@@ -165,7 +165,10 @@ def run_redteam_scenarios(config: RedteamConfig):
             "kimi_model": config.kimi_model or "default",
         })
 
-    # Enumerate eligible samples as (rec_idx, s_idx, r_idx), skipping completed ones.
+    # Enumerate the full eligible population as (rec_idx, s_idx, r_idx). The
+    # seeded cohort must be chosen before completed work is removed; otherwise
+    # rerunning a limited job silently selects replacement samples instead of
+    # resuming the same cohort.
     all_tasks: list[tuple[int, int, int]] = []
     for rec_idx, record in enumerate(input_records):
         cwe_id = record["cwe_id"]
@@ -173,17 +176,33 @@ def run_redteam_scenarios(config: RedteamConfig):
             scenario = scenario_group["scenario"]
             for r_idx, rollout in enumerate(scenario_group.get("rollouts", [])):
                 if config.all_samples or rollout.get("vulnerabilities"):
-                    if _rollout_key(cwe_id, scenario, rollout["code"], analyzer) not in completed:
-                        all_tasks.append((rec_idx, s_idx, r_idx))
+                    all_tasks.append((rec_idx, s_idx, r_idx))
 
-    total_remaining = len(all_tasks)
+    total_eligible = len(all_tasks)
     pool = "sample(s)" if config.all_samples else "analyzer-flagged sample(s)"
-    logger.info(f"Found {total_remaining} {pool} remaining ({len(completed)} already red-teamed)")
+    logger.info(f"Found {total_eligible} eligible {pool}")
 
-    # IID-sample down to --limit if requested (uniform draws without replacement)
+    # IID-sample a stable cohort before applying resume state.
     if config.limit is not None and len(all_tasks) > config.limit:
         all_tasks = random.Random(config.seed).sample(all_tasks, config.limit)
-        logger.info(f"IID-sampled {config.limit} of {total_remaining} {pool} (seed={config.seed})")
+        logger.info(f"IID-sampled {config.limit} of {total_eligible} {pool} (seed={config.seed})")
+
+    selected_count = len(all_tasks)
+    remaining_tasks: list[tuple[int, int, int]] = []
+    for rec_idx, s_idx, r_idx in all_tasks:
+        record = input_records[rec_idx]
+        scenario_group = record["scenarios"][s_idx]
+        rollout = scenario_group["rollouts"][r_idx]
+        key = _rollout_key(
+            record["cwe_id"], scenario_group["scenario"], rollout["code"], analyzer
+        )
+        if key not in completed:
+            remaining_tasks.append((rec_idx, s_idx, r_idx))
+    all_tasks = remaining_tasks
+    logger.info(
+        f"Found {len(all_tasks)} selected {pool} remaining "
+        f"({selected_count - len(all_tasks)} already red-teamed in the seeded cohort)"
+    )
 
     if not all_tasks:
         logger.info("Nothing to do!")
