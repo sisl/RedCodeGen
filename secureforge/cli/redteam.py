@@ -213,6 +213,44 @@ def run_redteam_scenarios(config: RedteamConfig):
     for rec_idx, s_idx, r_idx in all_tasks:
         selected[(rec_idx, s_idx)].append(r_idx)
 
+    def _process_rollout(rollout, tests, scenario):
+        vulnerabilities = rollout.get("vulnerabilities") or []
+        if analyzer is RedteamAnalyzer.KIMI:
+            redteam_result = run_redteam(
+                rollout["code"],
+                tests,
+                scenario,
+                vulnerabilities=vulnerabilities,
+                language=config.language,
+                kimi_model=config.kimi_model,
+                agent_timeout=config.agent_timeout,
+                run_timeout=config.run_timeout,
+                kimi_bin=kimi_bin,
+            )
+        else:
+            redteam_result = run_analyzer_check(
+                rollout["code"], analyzer, config.language
+            )
+        return {
+            "code": rollout["code"],
+            "passes_tests": rollout.get("passes_tests"),
+            "vulnerabilities": vulnerabilities,
+            "redteam": redteam_result,
+        }
+
+    # Keep one pool for the whole selected cohort. Most IID-selected scenarios
+    # contain only one rollout, so a per-scenario pool leaves --workers idle.
+    executor = ThreadPoolExecutor(max_workers=min(config.workers, len(all_tasks)))
+    rollout_futures = {}
+    for rec_idx, s_idx, r_idx in all_tasks:
+        scenario_group = input_records[rec_idx]["scenarios"][s_idx]
+        rollout_futures[(rec_idx, s_idx, r_idx)] = executor.submit(
+            _process_rollout,
+            scenario_group["rollouts"][r_idx],
+            scenario_group.get("tests"),
+            scenario_group["scenario"],
+        )
+
     # Track statistics
     total_scenarios = 0
     total_selected = 0
@@ -247,34 +285,11 @@ def run_redteam_scenarios(config: RedteamConfig):
                 f"({len(selected_rollouts)} selected sample(s))"
             )
 
-            def _process_rollout(rollout):
-                vulnerabilities = rollout.get("vulnerabilities") or []
-                if analyzer is RedteamAnalyzer.KIMI:
-                    redteam_result = run_redteam(
-                        rollout["code"],
-                        tests,
-                        scenario,
-                        vulnerabilities,
-                        language=config.language,
-                        kimi_model=config.kimi_model,
-                        agent_timeout=config.agent_timeout,
-                        run_timeout=config.run_timeout,
-                        kimi_bin=kimi_bin,
-                    )
-                else:
-                    redteam_result = run_analyzer_check(
-                        rollout["code"], analyzer, config.language
-                    )
-                return {
-                    "code": rollout["code"],
-                    "passes_tests": rollout.get("passes_tests"),
-                    "vulnerabilities": vulnerabilities,
-                    "redteam": redteam_result,
-                }
-
             try:
-                with ThreadPoolExecutor(max_workers=min(config.workers, len(selected_rollouts))) as executor:
-                    rollouts = list(executor.map(_process_rollout, selected_rollouts))
+                rollouts = [
+                    rollout_futures[(rec_idx, s_idx, r_idx)].result()
+                    for r_idx in r_indices
+                ]
             except Exception as e:
                 logger.error(f"    ✗ Scenario {s_idx + 1}/{len(scenarios)} failed: {e}")
                 continue
@@ -309,6 +324,8 @@ def run_redteam_scenarios(config: RedteamConfig):
             }
             rate = cwe_succeeded / cwe_selected * 100
             logger.info(f"✓ Completed CWE-{cwe_id}: red team succeeded on {cwe_succeeded}/{cwe_selected} ({rate:.2f}%, {cwe_errors} error(s))")
+
+    executor.shutdown(wait=True)
 
     # Final summary
     logger.info(f"Completed! Results saved to {output_path}")

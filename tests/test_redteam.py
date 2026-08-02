@@ -1,5 +1,7 @@
 """Tests for the redteam command (headless kimi agent orchestration)."""
 
+import threading
+
 import jsonlines
 import pytest
 import typer
@@ -319,6 +321,58 @@ class TestRunRedteamScenarios:
         calls.clear()
         run_redteam_scenarios(cfg)
         assert len(calls) == 0
+
+    def test_workers_are_shared_across_scenarios(self, tmp_path, monkeypatch):
+        input_path = tmp_path / "generated.jsonl"
+        output_path = tmp_path / "redteam.jsonl"
+        record = {
+            "cwe_id": 78,
+            "cwe_description": "x",
+            "scenarios": [
+                {
+                    "scenario": f"scenario-{index}",
+                    "tests": None,
+                    "rollouts": [
+                        {
+                            "code": f"code-{index}",
+                            "passes_tests": True,
+                            "vulnerabilities": VULNS,
+                        }
+                    ],
+                }
+                for index in range(2)
+            ],
+        }
+        with jsonlines.open(input_path, mode="w") as writer:
+            writer.write(record)
+
+        barrier = threading.Barrier(2, timeout=2)
+
+        def _stub(code, tests, scenario, vulnerabilities, **kwargs):
+            barrier.wait()
+            return {
+                "attempted": True,
+                "success": False,
+                "exit_code": 0,
+                "run_script": "#!/bin/bash\nexit 0\n",
+                "stdout": "",
+                "stderr": "",
+                "agent_log": "",
+                "error": None,
+            }
+
+        monkeypatch.setattr("secureforge.cli.redteam.run_redteam", _stub)
+        run_redteam_scenarios(
+            RedteamConfig(
+                input_file=str(input_path),
+                output=str(output_path),
+                workers=2,
+            )
+        )
+
+        with jsonlines.open(output_path) as reader:
+            data = [r for r in reader if r.get("record_type") != "config"]
+        assert len(data) == 2
 
 
 def test_sweep_redteam_all_samples_override(monkeypatch, tmp_path):
