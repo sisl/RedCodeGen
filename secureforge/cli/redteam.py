@@ -212,6 +212,8 @@ def run_redteam_scenarios(config: RedteamConfig):
     selected: dict[tuple[int, int], list[int]] = defaultdict(list)
     for rec_idx, s_idx, r_idx in all_tasks:
         selected[(rec_idx, s_idx)].append(r_idx)
+    for rollout_indices in selected.values():
+        rollout_indices.sort()
 
     def _process_rollout(rollout, tests, scenario):
         vulnerabilities = rollout.get("vulnerabilities") or []
@@ -242,7 +244,7 @@ def run_redteam_scenarios(config: RedteamConfig):
     # contain only one rollout, so a per-scenario pool leaves --workers idle.
     executor = ThreadPoolExecutor(max_workers=min(config.workers, len(all_tasks)))
     rollout_futures = {}
-    for rec_idx, s_idx, r_idx in all_tasks:
+    for rec_idx, s_idx, r_idx in sorted(all_tasks):
         scenario_group = input_records[rec_idx]["scenarios"][s_idx]
         rollout_futures[(rec_idx, s_idx, r_idx)] = executor.submit(
             _process_rollout,
